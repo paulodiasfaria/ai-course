@@ -107,3 +107,7 @@ details.revelar[open] summary { margin-bottom: 10px; }
 .btn { display: inline-block; font: 600 0.9rem var(--f-body); color: var(--bg); background: var(--accent); border-radius: 6px; padding: 9px 16px; text-decoration: none; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+/* Conteúdo largo (código, tabelas) faz scroll dentro do próprio bloco */
+.demo > *, .quiz > *, .caixa > *, .nota > *, .resumo > *, details.revelar > * { min-width: 0; }
+td code { word-break: break-word; }
