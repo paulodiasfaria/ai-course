@@ -155,15 +155,13 @@ def montar_contexto(chunks):
   <p>Os dois frameworks mais usados para RAG oferecem leitores de documentos, chunkers, integração com dezenas de bases vetoriais e LLMs, e pipelines prontos. O mesmo pipeline em LlamaIndex cabe em poucas linhas:</p>
   <div class="codigo"><pre><code>from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.anthropic import Anthropic
 
 Settings.embed_model = HuggingFaceEmbedding("intfloat/multilingual-e5-base")
-Settings.llm = Anthropic(model="claude-haiku-5-5")
-
 docs = SimpleDirectoryReader("docs").load_data()
 index = VectorStoreIndex.from_documents(docs)
-resposta = index.as_query_engine(similarity_top_k=4).query("Quantos dias de férias tenho?")
-print(resposta, resposta.source_nodes)</code></pre></div>
+excertos = index.as_retriever(similarity_top_k=4).retrieve("Quantos dias de férias tenho?")
+# ...e a geração com o teu prompt e o SDK do fornecedor, como nas secções anteriores
+# (ou index.as_query_engine() com um LLM configurado no LlamaIndex)</code></pre></div>
   <div class="tabela"><table>
     <thead><tr><th></th><th>LlamaIndex</th><th>LangChain</th></tr></thead>
     <tbody>

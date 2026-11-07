@@ -1,0 +1,47 @@
+# Uso:  MODELO=reclamacoes-w4a16 docker compose up --build
+# Precisa de Docker com suporte a GPU NVIDIA (nvidia-container-toolkit).
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.11.0     # fixa uma versão; atualiza conscientemente
+    command: >
+      --model /modelos/${MODELO:-reclamacoes-w4a16}
+      --served-model-name reclamacoes
+      --max-model-len 2048
+      --gpu-memory-utilization 0.85
+      --enable-prefix-caching
+    volumes:
+      - ./modelos:/modelos:ro
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 30
+      start_period: 60s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: 12-inferencia-eficiente-e-llmops/use-case/Dockerfile
+    environment:
+      VLLM_URL: http://vllm:8000/v1
+      API_KEYS: ${API_KEYS:-dev}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MODELO_FALLBACK: ${MODELO_FALLBACK:-claude-haiku-5-5}
+      CUSTO_GPU_HORA: ${CUSTO_GPU_HORA:-0.80}
+    ports:
+      - "8080:8080"
+    volumes:
+      - metricas:/dados
+    depends_on:
+      vllm:
+        condition: service_healthy
+
+volumes:
+  metricas:

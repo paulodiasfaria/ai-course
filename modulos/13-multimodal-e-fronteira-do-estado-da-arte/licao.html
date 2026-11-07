@@ -28,32 +28,139 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Vision-language models e document AI</a></li><li><a href="#s2">Speech-to-text, text-to-speech e agentes de voz em tempo real</a></li><li><a href="#s3">Modelos de difusão para imagem</a></li><li><a href="#s4">Modelos de raciocínio, test-time compute e contextos muito longos</a></li><li><a href="#s5">Small language models e modelos no dispositivo</a></li><li><a href="#s6">AI Act da UE: níveis de risco e obrigações práticas</a></li></ol>
+    <ol>
+      <li><a href="#s1">Modelos de visão e document AI</a></li>
+      <li><a href="#s2">Voz: transcrição, síntese e agentes de voz</a></li>
+      <li><a href="#s3">Modelos de difusão para imagem</a></li>
+      <li><a href="#s4">Raciocínio, test-time compute e contextos longos</a></li>
+      <li><a href="#s5">Modelos pequenos e no dispositivo</a></li>
+      <li><a href="#s6">AI Act da UE na prática</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Modelos de visão e document AI</h2>
+  <p>Um <strong>modelo de visão e linguagem</strong> (VLM) recebe imagens e texto. A imagem é partida em pequenos blocos (patches), cada bloco passa por um codificador de visão e torna-se uma sequência de vetores que o modelo de linguagem lê como se fossem tokens. Daí em diante, tudo o que aprendeste vale: prompts, structured outputs, avaliação.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Abordagem</th><th>Como funciona</th><th>Quando usar</th></tr></thead>
+    <tbody>
+      <tr><td>OCR clássico + regras</td><td>Tesseract ou um serviço de OCR transforma a imagem em texto; expressões regulares apanham os campos</td><td>Formulários fixos e enormes volumes com orçamento mínimo; frágil quando o layout muda</td></tr>
+      <tr><td>Conversão de documentos</td><td>Ferramentas como o Docling (módulo 5) ou o Azure Document Intelligence produzem texto estruturado com tabelas</td><td>Indexar documentos para RAG</td></tr>
+      <tr><td>VLM direto</td><td>A imagem vai ao modelo com um esquema Pydantic; o modelo lê o layout e devolve os campos</td><td>Layouts variados (faturas de centenas de fornecedores), campos que exigem interpretação</td></tr>
+      <tr><td>VLM aberto</td><td>Qwen2.5-VL, Gemma 3, Llama 3.2 Vision, Pixtral, a correr em GPU própria</td><td>Documentos que não podem sair da empresa</td></tr>
+    </tbody>
+  </table></div>
+  <p>O padrão que funciona em produção é o mesmo dos módulos anteriores: <strong>o modelo extrai, o código valida</strong>. Numa fatura portuguesa podes verificar o dígito de controlo do NIF, se as linhas somam o total, se as taxas de IVA são válidas e se a data faz sentido. Quando a validação falha, pedes uma segunda leitura focada no problema; se continuar a falhar, o documento vai para uma pessoa. Assim a taxa de erro aceite automaticamente fica muito abaixo da taxa de erro do modelo.</p>
+  <div class="codigo"><pre><code>r = llm.messages.parse(model="claude-sonnet-5-5", max_tokens=4000, output_format=Documento, messages=[{
+    "role": "user",
+    "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                {"type": "text", "text": "Extrai os dados desta fatura. Copia os valores impressos, mesmo que pareçam errados."}]}])
+doc = r.parsed_output
+problemas = validar(doc)       # NIF, somas, IVA, datas: código, não modelo</code></pre></div>
+  <div class="nota atencao"><strong>Dados pessoais</strong><p>Faturas e contratos têm NIF, moradas e valores. Enviar para uma API externa é um tratamento de dados ao abrigo do RGPD: confirma o contrato com o fornecedor (incluindo onde os dados são processados e se são guardados), ou usa um modelo aberto em infraestrutura própria.</p></div>
 
-  <h2 id="s1">Vision-language models e document AI</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Speech-to-text, text-to-speech e agentes de voz em tempo real</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">Voz: transcrição, síntese e agentes de voz</h2>
+  <ul>
+    <li><strong>Speech-to-text</strong>: o <strong>Whisper</strong> (OpenAI, aberto) transcreve dezenas de línguas, incluindo português europeu, com boa robustez a ruído. A versão <code>large-v3-turbo</code> é quase tão boa como a grande e muito mais rápida; o <code>faster-whisper</code> acelera ainda mais. Serviços geridos (Deepgram, AssemblyAI, Azure, Google) acrescentam diarização (quem fala) e streaming. Mede com a <strong>WER</strong> (word error rate): palavras trocadas, omitidas e inseridas a dividir pelo total.</li>
+    <li><strong>Text-to-speech</strong>: modelos abertos (MMS-TTS, Kokoro, XTTS) e serviços (ElevenLabs, Azure, OpenAI) produzem vozes naturais. Verifica se a voz soa a português europeu e não do Brasil: muitas vozes «pt» são pt-BR.</li>
+    <li><strong>Agentes de voz</strong>: a abordagem em cascata liga STT, LLM e TTS; os modelos <em>speech-to-speech</em> (como as APIs Realtime) recebem e devolvem áudio diretamente, com menos latência e mais expressividade. Numa conversa, as pessoas esperam resposta em menos de um segundo, por isso cada componente tem um orçamento de latência, e é preciso lidar com interrupções (barge-in) e silêncios.</li>
+  </ul>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  M[Microfone] --> VAD[Deteção de voz] --> STT[STT em streaming] --> LLM[LLM com ferramentas] --> TTS[TTS em streaming] --> A[Altifalante]
+  M -. interrupção .-> TTS
+    </pre>
+    <figcaption>Agente de voz em cascata. O streaming em cada etapa é o que mantém a resposta abaixo de um segundo.</figcaption>
+  </figure>
+
   <h2 id="s3">Modelos de difusão para imagem</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Modelos de raciocínio, test-time compute e contextos muito longos</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Small language models e modelos no dispositivo</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s6">AI Act da UE: níveis de risco e obrigações práticas</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <p>Um modelo de difusão aprende a remover ruído. No treino, junta-se ruído a imagens reais em vários níveis e a rede aprende a prever o ruído; na geração, parte-se de ruído puro e remove-se aos poucos, guiado pelo texto (através de um codificador de texto e de <em>classifier-free guidance</em>). A <strong>difusão latente</strong> (Stable Diffusion) faz isto num espaço comprimido por um autoencoder, o que a torna viável numa GPU de consumo. Os modelos mais recentes (Stable Diffusion 3, FLUX) usam transformers em vez de U-Nets e <em>flow matching</em>, que aprende um caminho mais direto do ruído à imagem e precisa de menos passos. A mesma família de ideias gera vídeo e áudio.</p>
+  <p>Para um engenheiro de GenAI numa empresa, os usos mais comuns são variações de imagens de produto, mock-ups e imagens para marketing, quase sempre através de APIs ou com LoRA treinados sobre o estilo da marca. Aqui entram também direitos de autor sobre os dados de treino, consentimento para imagens de pessoas e a obrigação de identificar conteúdo gerado (secção 6).</p>
+
+  <h2 id="s4">Raciocínio, test-time compute e contextos longos</h2>
+  <p>Durante anos, a forma de ter um modelo melhor foi treinar um maior. Os <strong>modelos de raciocínio</strong> acrescentaram outro eixo: gastar mais cálculo na inferência. O modelo pensa antes de responder (uma cadeia de raciocínio, muitas vezes oculta ou resumida), testa hipóteses e corrige-se. Foram treinados com aprendizagem por reforço sobre problemas verificáveis, como o GRPO do módulo 11.</p>
+  <ul>
+    <li><strong>Esforço como parâmetro</strong>: as APIs deixam escolher quanto o modelo pensa (por exemplo <code>effort</code> baixo, médio ou alto). Mais esforço melhora tarefas difíceis (matemática, código, planeamento) e custa mais tokens e latência; em tarefas simples só custa. Afina por tipo de pedido, como afinas o modelo.</li>
+    <li><strong>Técnicas sem treino</strong>: <em>self-consistency</em> (gerar várias respostas e escolher a mais votada), <em>best-of-n</em> com um verificador ou juiz, e pesquisa sobre passos de raciocínio. Todas trocam cálculo por fiabilidade.</li>
+    <li><strong>Prompts para modelos de raciocínio</strong>: dá o objetivo, o contexto e os critérios de sucesso; não precisas de «pensa passo a passo» nem de ditar cada passo.</li>
+  </ul>
+  <p><strong>Contextos longos</strong>: há modelos com janelas de um milhão de tokens. Isso não elimina o RAG: pôr tudo no contexto custa mais a cada pedido, é mais lento e a atenção a detalhes no meio de muito texto degrada-se. Usa contexto longo para documentos que precisam de ser lidos por inteiro (um contrato, um repositório), com prompt caching, e RAG para pesquisar em coleções grandes.</p>
+
+  <h2 id="s5">Modelos pequenos e no dispositivo</h2>
+  <p>Modelos de 1 a 8 mil milhões de parâmetros (Qwen, Gemma, Phi, Llama 3.2, Mistral pequenos) correm num portátil ou telemóvel quando quantizados (módulo 12). As razões para os usar: privacidade (os dados não saem do dispositivo), funcionamento sem rede, latência mínima e custo zero por pedido. As ferramentas: <strong>Ollama</strong> e <strong>llama.cpp</strong> (GGUF), <strong>MLX</strong> no Mac, <strong>ONNX Runtime</strong> e <strong>ExecuTorch</strong> em telemóveis, e WebGPU no browser. Os fabricantes de sistemas operativos já incluem modelos no dispositivo para resumir, reescrever e classificar.</p>
+  <p>A combinação mais interessante é híbrida: um modelo pequeno local trata os pedidos fáceis ou sensíveis, e só os difíceis vão para um modelo grande na nuvem. É o mesmo princípio do encaminhamento por custo do módulo 12.</p>
+
+  <h2 id="s6">AI Act da UE na prática</h2>
+  <p>O <strong>Regulamento (UE) 2024/1689</strong> classifica os sistemas de IA pelo risco que representam para as pessoas e aplica-se a quem os desenvolve, comercializa ou usa na UE. Entra em vigor por fases: as práticas proibidas e o dever de literacia em IA aplicam-se desde fevereiro de 2025; as obrigações dos modelos de uso geral, desde agosto de 2025; as dos sistemas de alto risco estão previstas para agosto de 2026 e 2027, com propostas da Comissão para adiar parte delas. Confirma sempre o calendário em vigor.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Nível</th><th>Exemplos</th><th>O que implica</th></tr></thead>
+    <tbody>
+      <tr><td>Proibido</td><td>Pontuação social, manipulação que explora vulnerabilidades, reconhecimento de emoções no trabalho ou na escola, recolha massiva de imagens faciais</td><td>Não se pode fazer</td></tr>
+      <tr><td>Alto risco</td><td>Triagem de candidatos a emprego, avaliação de crédito, acesso a educação ou serviços públicos essenciais, componentes de segurança</td><td>Gestão de risco, qualidade dos dados, documentação técnica, registos, supervisão humana, exatidão e robustez, avaliação de conformidade</td></tr>
+      <tr><td>Transparência</td><td>Chatbots, conteúdo gerado ou manipulado (deepfakes), texto gerado publicado como informação</td><td>Informar que se fala com uma IA; identificar conteúdo gerado</td></tr>
+      <tr><td>Risco mínimo</td><td>Filtros de spam, classificação de reclamações, extração de faturas, recomendação de produtos</td><td>Sem obrigações específicas além da literacia em IA; boas práticas voluntárias</td></tr>
+    </tbody>
+  </table></div>
+  <p>Escolhe um caso e vê como seria classificado:</p>
+  <div class="demo" id="aia">
+    <label for="aia-s">Sistema</label>
+    <select id="aia-s" style="font:0.95rem var(--f-sans);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)"></select>
+    <div id="aia-out" style="border-radius:6px;padding:12px 14px;font-size:.95rem;color:var(--fg)"></div>
+    <p style="font-size:.82rem;color:var(--muted);margin:0">Orientação pedagógica simplificada, não aconselhamento jurídico. A classificação real depende do uso concreto e dos anexos do regulamento.</p>
+  </div>
+  <div class="nota"><strong>Na prática, para os projetos deste curso</strong><p>Quase todos são de risco mínimo ou de transparência. Mesmo assim, documenta o propósito, os dados e as avaliações (o model card do módulo 11 e os relatórios de avaliação do módulo 7 servem para isso), diz às pessoas quando estão a falar com uma IA e mantém supervisão humana onde um erro tem consequências. Se o sistema decide sobre pessoas (emprego, crédito, acesso a serviços), envolve o jurídico desde o início.</p></div>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="1" data-explicacao="As validações determinísticas apanham erros de leitura que o modelo não assinala; uma segunda leitura focada ou a revisão humana tratam o resto.">
+    <p class="pergunta">O VLM extrai faturas com 97 % de exatidão por campo. Como reduzes os erros que passam sem ninguém ver?</p>
+    <div class="opcoes"><button>Pedir ao modelo para ter mais cuidado</button><button>Validar com código (NIF, somas, IVA) e mandar para revisão o que falha</button><button>Usar sempre o modelo maior disponível</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="Mais esforço de raciocínio ajuda em problemas difíceis; numa classificação simples só acrescenta custo e latência.">
+    <p class="pergunta">Em que tarefa compensa menos aumentar o esforço de raciocínio do modelo?</p>
+    <div class="opcoes"><button>Planear uma migração de base de dados</button><button>Resolver um problema de otimização com restrições</button><button>Classificar o sentimento de uma frase curta</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Triagem de candidatos a emprego está entre os usos de alto risco do AI Act, com obrigações de gestão de risco, dados, documentação e supervisão humana.">
+    <p class="pergunta">Uma empresa quer usar um LLM para ordenar automaticamente candidaturas a emprego. Como é classificado no AI Act?</p>
+    <div class="opcoes"><button>Alto risco</button><button>Risco mínimo, porque há uma pessoa no fim</button><button>Proibido</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="A WER conta substituições, omissões e inserções de palavras face a uma transcrição de referência, a dividir pelo número de palavras da referência.">
+    <p class="pergunta">Como se mede a qualidade de uma transcrição automática?</p>
+    <div class="opcoes"><button>Pela perplexidade do modelo</button><button>Pela taxa de erro de palavras (WER) face a uma transcrição de referência</button><button>Pelo tempo de transcrição</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: desenha um assistente de voz para marcações numa clínica, a cumprir o AI Act.</summary><p>Cascata com STT em streaming (Whisper ou serviço gerido com bom pt-PT), LLM com ferramentas de agenda (módulo 8) e TTS com voz pt-PT. Logo no início diz que é um assistente automático e oferece passar a uma pessoa (transparência). Não toma decisões clínicas nem faz triagem de urgência: encaminha para pessoas (o que evita entrar em alto risco). Grava só o necessário, com consentimento, e avalia a WER e a taxa de marcações corretas com chamadas de teste antes de pôr em produção.</p></details>
+
+<script>
+(() => {
+  const C = [
+    ['Classificador de reclamações de clientes (módulo 11)', 'minimo', 'Sem obrigações específicas. Boas práticas: documentar, avaliar e permitir correção humana das classificações.'],
+    ['Extração automática de faturas para a contabilidade', 'minimo', 'Sem obrigações específicas. Atenção ao RGPD (NIF e moradas) e a manter revisão nos casos que falham a validação.'],
+    ['Chatbot de apoio ao cliente no site', 'transparencia', 'Informar claramente que a pessoa está a falar com uma IA, a menos que seja óbvio pelo contexto.'],
+    ['Geração de imagens de produto para campanhas', 'transparencia', 'Conteúdo gerado deve ser identificável como tal (marcação legível por máquina) e, se retratar pessoas ou eventos reais, identificado como manipulado.'],
+    ['Triagem e ordenação de candidaturas a emprego', 'alto', 'Gestão de risco, dados de treino representativos, documentação técnica, registos automáticos, supervisão humana efetiva, exatidão e robustez. Quem usa o sistema também tem obrigações (supervisão, informar os candidatos).'],
+    ['Avaliação de risco de crédito de particulares', 'alto', 'As mesmas obrigações do alto risco, mais avaliação de impacto nos direitos fundamentais para certas entidades.'],
+    ['Deteção de emoções dos trabalhadores por câmara', 'proibido', 'O reconhecimento de emoções no local de trabalho é uma prática proibida, salvo razões médicas ou de segurança.'],
+    ['Assistente que resume reuniões internas', 'minimo', 'Sem obrigações específicas. Informar os participantes da gravação (RGPD) e rever resumos antes de os usar em decisões.'],
+  ];
+  const N = { proibido: ['Proibido', 'var(--bad-soft)'], alto: ['Alto risco', 'var(--heat-soft)'], transparencia: ['Obrigações de transparência', 'var(--accent-soft)'], minimo: ['Risco mínimo', 'var(--ok-soft)'] };
+  const sel = document.getElementById('aia-s'), out = document.getElementById('aia-out');
+  C.forEach((c, i) => { const o = document.createElement('option'); o.value = i; o.textContent = c[0]; sel.append(o); });
+  function render() {
+    const [, n, t] = C[+sel.value];
+    out.style.background = N[n][1];
+    out.innerHTML = `<strong>${N[n][0]}</strong><br>${t}`;
+  }
+  sel.addEventListener('input', render);
+  render();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Os modelos atuais leem imagens e documentos, ouvem e falam: um modelo de visão e linguagem extrai campos de uma fatura digitalizada sem OCR separado, o Whisper transcreve voz e os agentes de voz juntam tudo em tempo real. Os modelos de raciocínio trocam tempo de cálculo na inferência por qualidade, e o esforço passa a ser um parâmetro a afinar como o custo. Modelos pequenos correm no dispositivo, com privacidade e sem rede. E qualquer projeto na Europa tem de passar pelo AI Act: perceber o nível de risco do sistema, cumprir as obrigações de transparência e manter as pessoas a supervisionar o que importa.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="13">Marcar lição como concluída</button></p>
   </section>
