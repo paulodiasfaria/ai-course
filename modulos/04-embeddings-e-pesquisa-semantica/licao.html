@@ -28,30 +28,212 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Sentence embeddings, similaridade de cosseno e normalização</a></li><li><a href="#s2">Modelos de embeddings: multilingual-e5, BGE-M3, embeddings via API</a></li><li><a href="#s3">BM25 e pesquisa lexical; quando cada abordagem ganha</a></li><li><a href="#s4">FAISS, Chroma, Qdrant e pgvector</a></li><li><a href="#s5">Métricas de recuperação: recall@k, MRR, nDCG</a></li></ol>
+    <ol>
+      <li><a href="#s1">De texto a vetor</a></li>
+      <li><a href="#s2">Similaridade de cosseno</a></li>
+      <li><a href="#s3">Escolher um modelo de embeddings</a></li>
+      <li><a href="#s4">Pesquisa lexical com BM25</a></li>
+      <li><a href="#s5">Pesquisa híbrida</a></li>
+      <li><a href="#s6">Índices aproximados e bases de dados vetoriais</a></li>
+      <li><a href="#s7">Medir a qualidade da pesquisa</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">De texto a vetor</h2>
+  <p>Um <strong>modelo de embeddings</strong> é um transformer treinado para que textos com o mesmo significado fiquem perto uns dos outros num espaço de centenas de dimensões. Ao contrário de um LLM, não gera texto: recebe um texto e devolve um vetor, normalmente fazendo a média (mean pooling) dos vetores de todos os tokens da última camada.</p>
+  <p>São treinados com <strong>aprendizagem contrastiva</strong>: pares de textos relacionados (pergunta e resposta, título e artigo, frase e tradução) são aproximados, e textos não relacionados do mesmo batch são afastados. O resultado é que «Como devolvo uma encomenda?» fica perto de «Política de devoluções» mesmo sem palavras em comum.</p>
+  <div class="codigo"><pre><code>from sentence_transformers import SentenceTransformer
 
-  <h2 id="s1">Sentence embeddings, similaridade de cosseno e normalização</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Modelos de embeddings: multilingual-e5, BGE-M3, embeddings via API</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">BM25 e pesquisa lexical; quando cada abordagem ganha</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">FAISS, Chroma, Qdrant e pgvector</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Métricas de recuperação: recall@k, MRR, nDCG</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+modelo = SentenceTransformer("intfloat/multilingual-e5-base")
+frases = ["query: como devolvo uma encomenda?",
+          "passage: Tem 30 dias para devolver qualquer artigo sem justificação.",
+          "passage: As entregas nos Açores demoram 3 a 5 dias."]
+vetores = modelo.encode(frases, normalize_embeddings=True)   # forma (3, 768)
+print(vetores[0] @ vetores[1:].T)    # por exemplo [0.86, 0.74]: a devolução fica mais perto</code></pre></div>
+  <div class="nota atencao"><strong>Prefixos</strong><p>Alguns modelos (família E5, BGE em certas versões) foram treinados com prefixos como <code>query:</code> e <code>passage:</code>. Esquecer os prefixos pode baixar muito a qualidade. Lê sempre o model card.</p></div>
+
+  <h2 id="s2">Similaridade de cosseno</h2>
+  <p>A semelhança entre dois embeddings mede-se pelo cosseno do ângulo entre eles: 1 é a mesma direção, 0 é ortogonal. Com vetores normalizados (norma 1), o cosseno é simplesmente o produto interno, o que torna a pesquisa muito rápida: uma multiplicação de matrizes.</p>
+  <p>Na demo, cada ponto é um documento num espaço de 2 dimensões (os reais têm centenas). Arrasta a pergunta e vê quais ficam mais próximos em ângulo:</p>
+  <div class="demo">
+    <canvas id="cos" width="560" height="320" style="width:100%;max-width:560px;height:auto;touch-action:none;border-radius:6px;background:var(--bg);cursor:grab" aria-label="Espaço de embeddings em duas dimensões"></canvas>
+    <ol id="cos-out" style="font-size:.9rem"></ol>
+  </div>
+  <div class="codigo"><pre><code>import numpy as np
+
+def cosseno(a, b):
+    return a @ b / (np.linalg.norm(a) * np.linalg.norm(b))
+
+# Pesquisa: com a matriz de documentos já normalizada
+pontuacoes = docs_norm @ pergunta_norm      # (n_docs,)
+top5 = np.argsort(-pontuacoes)[:5]</code></pre></div>
+
+  <h2 id="s3">Escolher um modelo de embeddings</h2>
+  <p>O <strong>MTEB</strong> (Massive Text Embedding Benchmark) compara modelos em dezenas de tarefas e línguas. Filtra por retrieval e pela língua portuguesa, mas confirma sempre com os teus dados, porque a diferença entre domínios é grande.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Modelo</th><th>Dimensão</th><th>Notas</th></tr></thead>
+    <tbody>
+      <tr><td>intfloat/multilingual-e5-base / large</td><td>768 / 1024</td><td>Multilingue sólido, corre em CPU. Usa prefixos.</td></tr>
+      <tr><td>BAAI/bge-m3</td><td>1024</td><td>Multilingue, até 8192 tokens, devolve vetores densos, esparsos e multi-vetor.</td></tr>
+      <tr><td>Alibaba-NLP gte-multilingual, Qwen3-Embedding</td><td>768 a 4096</td><td>Modelos recentes com boa qualidade em português.</td></tr>
+      <tr><td>Embeddings via API (OpenAI, Voyage, Cohere, Google)</td><td>1024 a 3072</td><td>Sem infraestrutura; pagas por token e os dados saem da tua rede.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Critérios práticos: qualidade na tua tarefa, língua, comprimento máximo do texto, dimensão (afeta memória e velocidade), custo e se os dados podem sair da tua infraestrutura. Muitos modelos recentes suportam <strong>Matryoshka</strong>: podes cortar o vetor para menos dimensões perdendo pouca qualidade.</p>
+
+  <h2 id="s4">Pesquisa lexical com BM25</h2>
+  <p>O <strong>BM25</strong> é o algoritmo clássico dos motores de pesquisa. Pontua um documento pelas palavras da pergunta que contém, dando mais peso a palavras raras (IDF) e saturando a contagem para que repetir uma palavra 50 vezes não valha 50 vezes mais. Não precisa de GPU nem de treino.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Pergunta</th><th>BM25</th><th>Vetorial</th></tr></thead>
+    <tbody>
+      <tr><td>«erro E-4417 na impressora»</td><td>Encontra o código exato</td><td>Pode trazer erros parecidos mas diferentes</td></tr>
+      <tr><td>«artigo 238.º do Código do Trabalho»</td><td>Exato</td><td>Aproximado</td></tr>
+      <tr><td>«como despedir um funcionário com justa causa»</td><td>Falha se o texto disser «cessação do contrato por facto imputável ao trabalhador»</td><td>Encontra pelo significado</td></tr>
+      <tr><td>«carro elétrico barato»</td><td>Perde «veículo EV acessível»</td><td>Encontra</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s5">Pesquisa híbrida</h2>
+  <p>Como cada método falha em casos diferentes, a combinação dos dois quase sempre ganha. O problema é que as pontuações têm escalas diferentes (BM25 vai de 0 a dezenas, cosseno de −1 a 1). A solução mais robusta é o <strong>Reciprocal Rank Fusion (RRF)</strong>, que só usa a posição de cada documento em cada lista:</p>
+  <div class="codigo"><pre><code>def rrf(listas, k=60):
+    pont = {}
+    for lista in listas:                       # cada lista: ids ordenados
+        for pos, doc in enumerate(lista):
+            pont[doc] = pont.get(doc, 0) + 1 / (k + pos + 1)
+    return sorted(pont, key=pont.get, reverse=True)
+
+hibrida = rrf([bm25_top50, vetorial_top50])</code></pre></div>
+  <div class="demo" id="rrf">
+    <p style="font-size:.9rem">Duas listas para a pergunta «prazo para devolver encomenda». Vê como o RRF combina as posições:</p>
+    <div id="rrf-out" class="tabela"></div>
+  </div>
+
+  <h2 id="s6">Índices aproximados e bases de dados vetoriais</h2>
+  <p>Comparar a pergunta com todos os vetores (pesquisa exata ou <em>flat</em>) é ótimo até algumas centenas de milhares de documentos. Acima disso usam-se índices de <strong>vizinhos mais próximos aproximados (ANN)</strong>, que trocam um pouco de recall por ordens de grandeza de velocidade.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Índice</th><th>Ideia</th><th>Compromisso</th></tr></thead>
+    <tbody>
+      <tr><td>HNSW</td><td>Grafo em camadas: a pesquisa salta de nó em nó em direção à pergunta, começando numa camada esparsa.</td><td>Muito rápido e com recall alto; usa bastante memória. É o padrão na maioria das bases.</td></tr>
+      <tr><td>IVF</td><td>Agrupa os vetores com k-means e só pesquisa nos grupos mais próximos.</td><td>Menos memória; recall depende de quantos grupos visitas (<code>nprobe</code>).</td></tr>
+      <tr><td>PQ (product quantization)</td><td>Comprime cada vetor em poucos bytes.</td><td>Memória mínima, alguma perda de precisão. Combina com IVF.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tabela"><table>
+    <thead><tr><th>Ferramenta</th><th>Quando usar</th></tr></thead>
+    <tbody>
+      <tr><td>FAISS</td><td>Biblioteca em memória, sem servidor. Ótima para experiências e lotes.</td></tr>
+      <tr><td>Chroma</td><td>Simples de usar em protótipos, corre embutida em Python.</td></tr>
+      <tr><td>Qdrant</td><td>Base de dados vetorial completa: filtros de metadados, pesquisa híbrida nativa, modo local e servidor.</td></tr>
+      <tr><td>pgvector</td><td>Extensão de PostgreSQL. Se já tens Postgres, evita mais um sistema.</td></tr>
+      <tr><td>Elasticsearch / OpenSearch</td><td>BM25 de referência com suporte vetorial; bom quando já existe.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="nota"><strong>Filtros de metadados</strong><p>Em produção quase sempre precisas de filtrar: só documentos deste cliente, desta data, desta categoria. Guarda os metadados junto dos vetores e filtra na própria base, não depois de pesquisar.</p></div>
+
+  <h2 id="s7">Medir a qualidade da pesquisa</h2>
+  <p>Precisas de um conjunto de perguntas com os documentos relevantes conhecidos. Depois calculas:</p>
+  <ul>
+    <li><strong>Recall@k</strong>: fração das perguntas em que um documento relevante aparece nos k primeiros. Em RAG é a métrica principal, porque o LLM só vê os k primeiros.</li>
+    <li><strong>MRR</strong> (Mean Reciprocal Rank): média de 1/posição do primeiro relevante. Premeia ter o certo em primeiro lugar.</li>
+    <li><strong>nDCG@k</strong>: considera vários documentos relevantes com graus de relevância e desconta pela posição.</li>
+  </ul>
+  <div class="codigo"><pre><code>def recall_at_k(resultados, relevantes, k):
+    return np.mean([len(set(r[:k]) &amp; rel) &gt; 0 for r, rel in zip(resultados, relevantes)])
+
+def mrr(resultados, relevantes):
+    rr = []
+    for r, rel in zip(resultados, relevantes):
+        pos = next((i for i, d in enumerate(r) if d in rel), None)
+        rr.append(0 if pos is None else 1 / (pos + 1))
+    return np.mean(rr)</code></pre></div>
+  <div class="nota"><strong>Sem dados anotados?</strong><p>Gera perguntas sintéticas: pede a um LLM que escreva, para cada documento, uma pergunta a que ele responde. O documento de origem passa a ser o relevante. Não é perfeito, mas permite comparar abordagens no mesmo dia.</p></div>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="1" data-explicacao="Com vetores de norma 1, o denominador do cosseno é 1, por isso o cosseno é exatamente o produto interno.">
+    <p class="pergunta">Porque é que se normalizam os embeddings antes de os guardar?</p>
+    <div class="opcoes"><button>Para ocuparem menos memória</button><button>Para o produto interno ser igual à similaridade de cosseno</button><button>Porque os modelos não funcionam sem normalização</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Códigos e identificadores exatos são o ponto forte da pesquisa lexical. Os embeddings tendem a aproximar códigos parecidos mas diferentes.">
+    <p class="pergunta">Os técnicos pesquisam por códigos de erro como «E-4417». Que pesquisa garante melhores resultados?</p>
+    <div class="opcoes"><button>BM25 (ou híbrida)</button><button>Só vetorial</button><button>Nenhuma, é preciso fine-tuning</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="O RRF usa só a posição em cada lista, por isso não precisa de normalizar escalas de pontuação diferentes.">
+    <p class="pergunta">Qual é a vantagem do Reciprocal Rank Fusion?</p>
+    <div class="opcoes"><button>É mais rápido que o BM25</button><button>Não precisa de embeddings</button><button>Combina listas sem ter de comparar pontuações com escalas diferentes</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="Num sistema RAG, o LLM só recebe os k primeiros documentos. Se o relevante não está lá, a resposta não pode ser boa.">
+    <p class="pergunta">Num sistema RAG que envia 5 documentos ao LLM, que métrica de pesquisa importa mais?</p>
+    <div class="opcoes"><button>Precisão@50</button><button>Recall@5</button><button>Tempo de indexação</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: quanta memória ocupam 10 milhões de embeddings de 1024 dimensões em float32?</summary><p>10⁷ × 1024 × 4 bytes ≈ 41 GB, mais o grafo HNSW (tipicamente 10 a 30% extra). Com quantização para int8 desce para cerca de 10 GB; com quantização binária, para cerca de 1,3 GB, normalmente com uma segunda fase de reordenação com os vetores completos.</p></details>
+
+<script>
+(() => {
+  // ---- Cosseno 2D ----
+  const cv = document.getElementById('cos'), ctx = cv.getContext('2d'), out = document.getElementById('cos-out');
+  const docs = [
+    ['Política de devoluções', 0.82, 0.35], ['Trocar um artigo com defeito', 0.7, 0.5], ['Reembolso em 14 dias', 0.9, 0.15],
+    ['Prazos de entrega nos Açores', -0.3, 0.9], ['Custos de envio', -0.1, 0.8], ['Pagar com MB WAY', -0.85, -0.2],
+    ['Fatura com NIF', -0.7, -0.55], ['Garantia de 3 anos', 0.45, -0.6],
+  ];
+  let q = [0.75, 0.6], drag = false;
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  function draw() {
+    const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.42;
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+    const qn = Math.hypot(...q);
+    const sims = docs.map(([t, x, y]) => [t, (x * q[0] + y * q[1]) / (Math.hypot(x, y) * qn), x, y]).sort((a, b) => b[1] - a[1]);
+    const top = new Set(sims.slice(0, 3).map(s => s[0]));
+    ctx.font = '12px "IBM Plex Sans", sans-serif';
+    docs.forEach(([t, x, y]) => {
+      const px = cx + x * R, py = cy - y * R;
+      ctx.fillStyle = top.has(t) ? css('--accent') : css('--muted');
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = css('--fg');
+      ctx.textAlign = x > 0 ? 'right' : 'left';
+      ctx.fillText(t, px + (x > 0 ? -8 : 8), py - 8);
+    });
+    const qx = cx + q[0] * R, qy = cy - q[1] * R;
+    ctx.strokeStyle = css('--heat'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(qx, qy); ctx.stroke();
+    ctx.fillStyle = css('--heat'); ctx.beginPath(); ctx.arc(qx, qy, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = css('--fg'); ctx.textAlign = 'center'; ctx.fillText('pergunta (arrasta)', qx, qy + 22);
+    out.innerHTML = sims.slice(0, 3).map(s => `<li>${s[0]} <span style="font-family:var(--f-mono);color:var(--muted)">cos = ${s[1].toFixed(2)}</span></li>`).join('');
+  }
+  function pos(e) {
+    const r = cv.getBoundingClientRect(), W = cv.width, H = cv.height, R = Math.min(W, H) * 0.42;
+    const x = ((e.clientX - r.left) / r.width * W - W / 2) / R, y = -((e.clientY - r.top) / r.height * H - H / 2) / R;
+    const n = Math.hypot(x, y); q = n > 1 ? [x / n, y / n] : [x, y]; draw();
+  }
+  cv.addEventListener('pointerdown', e => { drag = true; cv.setPointerCapture(e.pointerId); pos(e); });
+  cv.addEventListener('pointermove', e => drag && pos(e));
+  cv.addEventListener('pointerup', () => (drag = false));
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+  draw();
+
+  // ---- RRF ----
+  const bm25 = ['D7 «Encomendas: prazos e devolução»', 'D2 «Prazo de entrega»', 'D9 «Devolver artigos com defeito»', 'D4 «Encomendas internacionais»'];
+  const vet = ['D1 «Política de devoluções: 30 dias»', 'D9 «Devolver artigos com defeito»', 'D7 «Encomendas: prazos e devolução»', 'D5 «Reembolsos»'];
+  const k = 60, p = {};
+  [bm25, vet].forEach(l => l.forEach((d, i) => (p[d] = (p[d] || 0) + 1 / (k + i + 1))));
+  const fus = Object.entries(p).sort((a, b) => b[1] - a[1]);
+  const rows = Math.max(bm25.length, vet.length, fus.length);
+  let h = '<table><thead><tr><th>#</th><th>BM25</th><th>Vetorial</th><th>RRF (k=60)</th></tr></thead><tbody>';
+  for (let i = 0; i < rows; i++) h += `<tr><td>${i + 1}</td><td>${bm25[i] || ''}</td><td>${vet[i] || ''}</td><td>${fus[i] ? fus[i][0] + ` <span style="font-family:var(--f-mono);color:var(--muted)">${fus[i][1].toFixed(4)}</span>` : ''}</td></tr>`;
+  document.getElementById('rrf-out').innerHTML = h + '</tbody></table>';
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Um modelo de embeddings transforma um texto num vetor, e textos com significado parecido ficam com vetores próximos, medidos pela similaridade de cosseno. A pesquisa lexical (BM25) é imbatível em nomes, códigos e termos exatos; a pesquisa vetorial encontra sinónimos e paráfrases; a combinação das duas (pesquisa híbrida) costuma ganhar. Para milhões de vetores usam-se índices aproximados como HNSW, em bases de dados vetoriais com filtros de metadados. Qualquer escolha deve ser medida com recall@k, MRR ou nDCG num conjunto de perguntas de teste.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="04">Marcar lição como concluída</button></p>
   </section>

@@ -28,30 +28,222 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Ingestão: PDFs, HTML e Word com parsing de tabelas (Docling, Unstructured)</a></li><li><a href="#s2">Chunking: tamanho fixo, recursivo, por secções e semântico</a></li><li><a href="#s3">Prompt de grounding, citações e resposta «não sei»</a></li><li><a href="#s4">RAG vs janelas de contexto longas: quando cada um compensa</a></li><li><a href="#s5">LlamaIndex e LangChain: o que acrescentam e o que escondem</a></li></ol>
+    <ol>
+      <li><a href="#s1">Porque RAG</a></li>
+      <li><a href="#s2">O pipeline completo</a></li>
+      <li><a href="#s3">Ingestão: de PDF a texto limpo</a></li>
+      <li><a href="#s4">Chunking</a></li>
+      <li><a href="#s5">Gerar com grounding e citações</a></li>
+      <li><a href="#s6">RAG ou contexto longo?</a></li>
+      <li><a href="#s7">LlamaIndex e LangChain</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Porque RAG</h2>
+  <p>Um LLM só sabe o que viu no treino. Não conhece os manuais da tua empresa, a legislação publicada ontem ou o estado de uma encomenda. <strong>Retrieval-Augmented Generation</strong> resolve isto: antes de responder, o sistema pesquisa os documentos relevantes e coloca-os no prompt. O modelo passa a responder com base em fontes que controlas.</p>
+  <ul>
+    <li><strong>Conhecimento atualizado</strong> sem retreinar: basta reindexar os documentos.</li>
+    <li><strong>Citações</strong>: cada resposta pode indicar de onde veio, o que permite verificar.</li>
+    <li><strong>Menos alucinações</strong>, desde que a pesquisa encontre a informação certa e o prompt obrigue a usá-la.</li>
+    <li><strong>Controlo de acesso</strong>: cada utilizador só pesquisa os documentos a que tem direito.</li>
+  </ul>
 
-  <h2 id="s1">Ingestão: PDFs, HTML e Word com parsing de tabelas (Docling, Unstructured)</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Chunking: tamanho fixo, recursivo, por secções e semântico</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Prompt de grounding, citações e resposta «não sei»</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">RAG vs janelas de contexto longas: quando cada um compensa</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">LlamaIndex e LangChain: o que acrescentam e o que escondem</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">O pipeline completo</h2>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  subgraph Indexação [Indexação, feita uma vez]
+    A[PDFs, Word, HTML] --> B[Parsing] --> C[Chunking] --> D[Embeddings] --> E[(Base vetorial)]
+  end
+  subgraph Consulta [Consulta, a cada pergunta]
+    P[Pergunta] --> Q[Embedding da pergunta] --> R[Pesquisa top-k]
+    E --> R
+    R --> S[Prompt com contexto] --> L[LLM] --> T[Resposta com citações]
+  end
+    </pre>
+    <figcaption>As duas fases do RAG. Erros na indexação propagam-se a todas as respostas.</figcaption>
+  </figure>
+  <div class="nota"><strong>Onde falha</strong><p>Quando um RAG dá uma resposta errada, a causa costuma estar numa de três fases: o texto foi mal extraído (tabelas partidas, cabeçalhos misturados), a pesquisa não trouxe o chunk certo, ou o modelo ignorou o contexto. Diagnostica por esta ordem.</p></div>
+
+  <h2 id="s3">Ingestão: de PDF a texto limpo</h2>
+  <p>Os PDFs foram feitos para imprimir, não para extrair texto. Colunas, tabelas, cabeçalhos e rodapés repetidos e texto em imagens são os problemas habituais. Ferramentas:</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Ferramenta</th><th>Pontos fortes</th></tr></thead>
+    <tbody>
+      <tr><td>pypdf / PyMuPDF</td><td>Rápidas e simples, para PDFs de texto sem estrutura complexa.</td></tr>
+      <tr><td>Docling (IBM)</td><td>Converte PDF, Word, PowerPoint e HTML para Markdown, preservando títulos e tabelas. Open source, corre localmente.</td></tr>
+      <tr><td>Unstructured</td><td>Divide documentos em elementos (título, parágrafo, tabela) de muitos formatos.</td></tr>
+      <tr><td>Marker, MinerU</td><td>PDF para Markdown com modelos de layout; bons em documentos científicos.</td></tr>
+      <tr><td>LLMs com visão</td><td>Para digitalizações e layouts muito irregulares (módulo 13). Mais caros.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="codigo"><pre><code>from docling.document_converter import DocumentConverter
+
+conv = DocumentConverter()
+doc = conv.convert("manual_colaborador.pdf").document
+markdown = doc.export_to_markdown()     # títulos como #, tabelas como | a | b |</code></pre></div>
+  <p>Converter para Markdown tem uma vantagem grande: os títulos ficam marcados e podes usá-los para dividir o documento em secções com significado.</p>
+
+  <h2 id="s4">Chunking</h2>
+  <p>Os documentos são divididos em pedaços (chunks) porque os modelos de embeddings têm limite de tokens, porque um vetor por documento inteiro dilui o significado e porque queremos enviar ao LLM só as partes relevantes.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Estratégia</th><th>Como funciona</th><th>Quando usar</th></tr></thead>
+    <tbody>
+      <tr><td>Tamanho fixo</td><td>N caracteres ou tokens com sobreposição.</td><td>Ponto de partida; texto sem estrutura.</td></tr>
+      <tr><td>Recursivo</td><td>Tenta cortar por parágrafos, depois frases, depois palavras, até caber no tamanho.</td><td>O padrão mais equilibrado.</td></tr>
+      <tr><td>Por estrutura</td><td>Corta por títulos Markdown, artigos, cláusulas.</td><td>Documentos estruturados: manuais, legislação, contratos.</td></tr>
+      <tr><td>Semântico</td><td>Corta onde os embeddings de frases consecutivas mudam muito.</td><td>Texto longo sem estrutura, como transcrições.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Experimenta: muda o tamanho e a sobreposição e repara onde os cortes caem.</p>
+  <div class="demo" id="chk">
+    <label for="chk-modo">Estratégia</label>
+    <select id="chk-modo" style="font:inherit;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+      <option value="fixo">Tamanho fixo (caracteres)</option>
+      <option value="recursivo" selected>Recursivo (parágrafos, depois frases)</option>
+      <option value="seccao">Por secção (títulos ##)</option>
+    </select>
+    <label for="chk-n">Tamanho máximo: <span id="chk-nv">300</span> caracteres</label>
+    <input type="range" id="chk-n" min="80" max="800" step="20" value="300">
+    <label for="chk-o">Sobreposição: <span id="chk-ov">0</span> caracteres</label>
+    <input type="range" id="chk-o" min="0" max="150" step="10" value="0">
+    <div id="chk-out" style="display:grid;gap:6px;font-size:.85rem"></div>
+  </div>
+  <ul>
+    <li><strong>Tamanho</strong>: 200 a 800 tokens é um bom intervalo inicial. Chunks pequenos são precisos mas perdem contexto; grandes dão contexto mas diluem o embedding.</li>
+    <li><strong>Sobreposição</strong>: 10 a 20% evita perder frases cortadas a meio.</li>
+    <li><strong>Contexto no chunk</strong>: acrescenta o título do documento e da secção ao texto de cada chunk (por exemplo «Política de Despesas › 3. Alojamento»). Melhora muito a pesquisa.</li>
+    <li><strong>Metadados</strong>: guarda fonte, página, secção e data para citar e filtrar.</li>
+  </ul>
+
+  <h2 id="s5">Gerar com grounding e citações</h2>
+  <p>Com os chunks recuperados, o prompt tem de fazer três coisas: obrigar a usar só o contexto, pedir citações verificáveis e permitir dizer «não sei».</p>
+  <div class="codigo"><pre><code>SYSTEM = """És o assistente interno da Loja Lusa. Respondes a perguntas de colaboradores
+usando EXCLUSIVAMENTE os excertos em &lt;contexto&gt;.
+
+Regras:
+- Cada afirmação termina com a fonte entre parênteses retos, por exemplo [2].
+- Se os excertos não contêm a resposta, diz "Não encontrei essa informação nos documentos"
+  e sugere a quem perguntar. Não uses conhecimento geral.
+- Responde em português de Portugal, em no máximo 5 frases."""
+
+def montar_contexto(chunks):
+    return "\n\n".join(
+        f'&lt;excerto id="{i}" fonte="{c.fonte}" secao="{c.secao}"&gt;\n{c.texto}\n&lt;/excerto&gt;'
+        for i, c in enumerate(chunks, 1))</code></pre></div>
+  <p>Depois de gerar, <strong>verifica as citações com código</strong>: os números citados existem? Uma resposta sem citações quando havia contexto é um sinal de alerta. No módulo 7 medimos a fidelidade ao contexto (faithfulness) de forma sistemática.</p>
+  <div class="nota atencao"><strong>Cuidado</strong><p>Os documentos indexados também podem conter instruções maliciosas (prompt injection indireta). Mantém os excertos delimitados e trata-os como dados, como no módulo 2.</p></div>
+
+  <h2 id="s6">RAG ou contexto longo?</h2>
+  <p>Com janelas de 200 mil a 1 milhão de tokens, às vezes é possível pôr todos os documentos no prompt. Quando compensa?</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Situação</th><th>Melhor opção</th></tr></thead>
+    <tbody>
+      <tr><td>Poucos documentos (menos de ~100 páginas), perguntas que cruzam todo o texto</td><td>Contexto longo, com prompt caching para baixar o custo</td></tr>
+      <tr><td>Milhares de documentos ou base que cresce</td><td>RAG</td></tr>
+      <tr><td>Muitos utilizadores com perguntas pontuais</td><td>RAG (cada pergunta custa uma fração)</td></tr>
+      <tr><td>Permissões diferentes por utilizador</td><td>RAG com filtros</td></tr>
+      <tr><td>Necessidade de citar a fonte exata</td><td>RAG (ou contexto longo com citações, mais caro)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s7">LlamaIndex e LangChain</h2>
+  <p>Os dois frameworks mais usados para RAG oferecem leitores de documentos, chunkers, integração com dezenas de bases vetoriais e LLMs, e pipelines prontos. O mesmo pipeline em LlamaIndex cabe em poucas linhas:</p>
+  <div class="codigo"><pre><code>from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.anthropic import Anthropic
+
+Settings.embed_model = HuggingFaceEmbedding("intfloat/multilingual-e5-base")
+Settings.llm = Anthropic(model="claude-haiku-5-5")
+
+docs = SimpleDirectoryReader("docs").load_data()
+index = VectorStoreIndex.from_documents(docs)
+resposta = index.as_query_engine(similarity_top_k=4).query("Quantos dias de férias tenho?")
+print(resposta, resposta.source_nodes)</code></pre></div>
+  <div class="tabela"><table>
+    <thead><tr><th></th><th>LlamaIndex</th><th>LangChain</th></tr></thead>
+    <tbody>
+      <tr><td>Foco</td><td>Dados e RAG: indexação, recuperação, motores de consulta</td><td>Composição genérica de cadeias e integrações; agentes com LangGraph</td></tr>
+      <tr><td>Vantagem</td><td>Muitas técnicas de RAG avançado prontas</td><td>Ecossistema enorme, LangSmith para observabilidade</td></tr>
+      <tr><td>Risco</td><td>Abstrações que escondem o prompt real</td><td>API muda com frequência, muitas camadas</td></tr>
+    </tbody>
+  </table></div>
+  <p>Conselho prático: constrói o primeiro pipeline à mão (é o que fazes no notebook) para perceber cada peça. Depois usa um framework onde ele poupa trabalho, e verifica sempre o prompt final que chega ao modelo.</p>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="2" data-explicacao="Se o chunk com a resposta não chega ao top-k, o modelo não a pode dar. Por isso começa-se por verificar a pesquisa.">
+    <p class="pergunta">O assistente responde «não encontrei» a uma pergunta cuja resposta está num dos manuais. Por onde começas a investigar?</p>
+    <div class="opcoes"><button>Trocar para um LLM maior</button><button>Aumentar a temperatura</button><button>Ver se o chunk certo aparece nos resultados da pesquisa</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Juntar o título do documento e da secção dá contexto a chunks curtos como «Limite por refeição: 20 €», que sozinhos não dizem a que política pertencem.">
+    <p class="pergunta">Qual destas alterações costuma melhorar mais a pesquisa num manual com muitas secções curtas?</p>
+    <div class="opcoes"><button>Acrescentar o título do documento e da secção ao texto de cada chunk</button><button>Remover toda a pontuação</button><button>Usar chunks de 5000 tokens</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="Pedir citações por afirmação e permitir «não sei» são as duas instruções que mais reduzem respostas inventadas e tornam as respostas verificáveis.">
+    <p class="pergunta">Que instruções são essenciais num prompt de RAG?</p>
+    <div class="opcoes"><button>Responder sempre, mesmo sem contexto</button><button>Usar só o contexto, citar a fonte e dizer quando não sabe</button><button>Resumir todos os excertos antes de responder</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="Com milhares de documentos e muitos utilizadores, enviar tudo em cada pergunta é caro e lento; o RAG envia só o relevante e permite filtrar por permissões.">
+    <p class="pergunta">Uma empresa tem 20 000 documentos e 500 colaboradores com permissões diferentes. RAG ou contexto longo?</p>
+    <div class="opcoes"><button>Contexto longo com todos os documentos</button><button>Fine-tuning do modelo com os documentos</button><button>RAG com filtros de permissões</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: o assistente responde «22 dias» a «quantos dias de férias tem alguém com 12 anos de casa?». O que falhou e como corriges?</summary><p>A resposta certa é 24 (22 + 1 por cada 5 anos = 2 dias). Possíveis causas: o chunk recuperado só tinha o ponto 2.1 e não o 2.2 (chunks demasiado pequenos ou corte a meio da secção), ou o modelo não fez a conta. Correções: chunking por secção inteira, aumentar k, e no prompt pedir para considerar todas as regras aplicáveis antes de responder.</p></details>
+
+<script>
+(() => {
+  const texto = `## 2. Férias
+
+2.1. Cada colaborador tem direito a 22 dias úteis de férias por ano civil.
+2.2. A Loja Lusa atribui 1 dia adicional por cada 5 anos de antiguidade, até ao máximo de 3 dias adicionais.
+2.3. No ano de admissão, o colaborador tem direito a 2 dias úteis por cada mês completo de contrato, até 20 dias.
+
+## 3. Teletrabalho
+
+3.1. As funções de escritório podem ser exercidas em regime híbrido: até 3 dias por semana em teletrabalho.
+3.2. A Loja Lusa paga um subsídio de teletrabalho de 1,50 € por dia em teletrabalho.`;
+  const modo = document.getElementById('chk-modo'), n = document.getElementById('chk-n'), o = document.getElementById('chk-o'), out = document.getElementById('chk-out');
+  function fixo(t, size, ov) { const r = []; for (let i = 0; i < t.length; i += Math.max(size - ov, 1)) r.push(t.slice(i, i + size)); return r; }
+  function recursivo(t, size, seps = ['\n\n', '\n', '. ', ' ']) {
+    if (t.length <= size) return [t];
+    const sep = seps.find(s => t.includes(s));
+    if (!sep) return fixo(t, size, 0);
+    const partes = t.split(sep), r = []; let cur = '';
+    for (const p of partes) {
+      const cand = cur ? cur + sep + p : p;
+      if (cand.length <= size) cur = cand;
+      else { if (cur) r.push(cur); if (p.length > size) { r.push(...recursivo(p, size, seps.slice(seps.indexOf(sep) + 1))); cur = ''; } else cur = p; }
+    }
+    if (cur) r.push(cur);
+    return r;
+  }
+  function sobrepor(chunks, ov) { return ov ? chunks.map((c, i) => i ? chunks[i - 1].slice(-ov) + c : c) : chunks; }
+  function render() {
+    document.getElementById('chk-nv').textContent = n.value; document.getElementById('chk-ov').textContent = o.value;
+    let ch;
+    if (modo.value === 'fixo') ch = fixo(texto, +n.value, +o.value);
+    else if (modo.value === 'recursivo') ch = sobrepor(recursivo(texto, +n.value), +o.value);
+    else ch = texto.split(/\n(?=## )/).map(s => s.trim());
+    out.innerHTML = '';
+    ch.forEach((c, i) => {
+      const d = document.createElement('div');
+      d.style.cssText = `white-space:pre-wrap;font-family:var(--f-mono);padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:${i % 2 ? 'var(--bg)' : 'var(--accent-soft)'}`;
+      d.innerHTML = `<strong style="font-family:var(--f-body);color:var(--accent)">Chunk ${i + 1} · ${c.length} car.</strong>\n`;
+      d.append(document.createTextNode(c));
+      out.append(d);
+    });
+    n.disabled = modo.value === 'seccao'; o.disabled = modo.value === 'seccao';
+  }
+  [modo, n, o].forEach(el => el.addEventListener('input', render)); render();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>O RAG junta pesquisa e geração: os documentos são convertidos em texto, partidos em chunks, indexados como embeddings e, a cada pergunta, os chunks mais relevantes entram no prompt. O parsing e o chunking determinam boa parte da qualidade; chunks por secção, com o título do documento, costumam funcionar melhor do que cortes cegos. O prompt de grounding obriga o modelo a responder só com o contexto, a citar a fonte e a dizer quando não sabe. Frameworks como LlamaIndex e LangChain aceleram o arranque, mas vale a pena ter construído o pipeline à mão para saber onde intervir.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="05">Marcar lição como concluída</button></p>
   </section>

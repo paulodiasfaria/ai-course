@@ -1,0 +1,20 @@
+{"pergunta": "Quantos dias de férias tenho por ano?", "fonte": "manual_colaborador.md", "secao": "2. Férias", "resposta": "22 dias úteis, mais 1 dia por cada 5 anos de antiguidade até 3 dias adicionais."}
+{"pergunta": "Tenho 12 anos de casa. Quantos dias de férias tenho?", "fonte": "manual_colaborador.md", "secao": "2. Férias", "resposta": "24 dias úteis (22 + 2 por antiguidade)."}
+{"pergunta": "Posso tirar férias no Natal se trabalhar no armazém?", "fonte": "manual_colaborador.md", "secao": "2. Férias", "resposta": "Em regra não: entre 15 de novembro e 6 de janeiro não são aprovadas férias no armazém, salvo exceções aprovadas pela direção."}
+{"pergunta": "Quantos dias por semana posso estar em teletrabalho?", "fonte": "manual_colaborador.md", "secao": "3. Teletrabalho", "resposta": "Até 3 dias por semana."}
+{"pergunta": "Recebo alguma compensação pelo teletrabalho?", "fonte": "manual_colaborador.md", "secao": "3. Teletrabalho", "resposta": "Subsídio de 1,50 € por dia em teletrabalho."}
+{"pergunta": "Qual é o valor do subsídio de refeição?", "fonte": "manual_colaborador.md", "secao": "5. Benefícios", "resposta": "10,20 € por dia útil trabalhado, em cartão refeição."}
+{"pergunta": "Até quando tenho de submeter uma despesa?", "fonte": "politica_despesas.md", "secao": "1. Princípios", "resposta": "No máximo 30 dias após a despesa, na aplicação Despesas+."}
+{"pergunta": "Quanto recebo por quilómetro se usar o meu carro?", "fonte": "politica_despesas.md", "secao": "2. Deslocações", "resposta": "0,40 € por quilómetro."}
+{"pergunta": "Posso viajar em primeira classe no comboio para Lisboa?", "fonte": "politica_despesas.md", "secao": "2. Deslocações", "resposta": "Só se a viagem durar mais de 3 horas; caso contrário, 2.ª classe."}
+{"pergunta": "Qual o limite para um hotel em Madrid?", "fonte": "politica_despesas.md", "secao": "3. Alojamento e refeições", "resposta": "140 € por noite (estrangeiro), com pequeno-almoço."}
+{"pergunta": "Quem aprova uma despesa de 800 euros?", "fonte": "politica_despesas.md", "secao": "5. Aprovações", "resposta": "A chefia direta e o diretor da área."}
+{"pergunta": "Posso usar o ChatGPT gratuito para analisar uma lista de clientes?", "fonte": "politica_ti.md", "secao": "3. Dados e ferramentas de IA", "resposta": "Não. É proibido colar dados de clientes em ferramentas de IA públicas; deve usar o Assistente Lusa."}
+{"pergunta": "Perdi o portátil no comboio. O que faço?", "fonte": "politica_ti.md", "secao": "2. Equipamentos", "resposta": "Informar o DSI em menos de 2 horas pelo 220 000 099 e apresentar queixa às autoridades."}
+{"pergunta": "Com que frequência tenho de mudar a palavra-passe?", "fonte": "politica_ti.md", "secao": "1. Palavras-passe e autenticação", "resposta": "Não expiram periodicamente; só se muda em caso de suspeita de comprometimento."}
+{"pergunta": "O robô mostra o erro E4. O que significa?", "fonte": "manual_lusaclean_x2.md", "secao": "5. Resolução de problemas", "resposta": "Sensor LiDAR obstruído; limpar a cúpula superior com um pano seco."}
+{"pergunta": "O LusaClean X2 funciona com Wi-Fi 5 GHz?", "fonte": "manual_lusaclean_x2.md", "secao": "2. Primeira utilização", "resposta": "Não, só suporta Wi-Fi de 2,4 GHz."}
+{"pergunta": "De quanto em quanto tempo troco o filtro do robô?", "fonte": "manual_lusaclean_x2.md", "secao": "4. Manutenção", "resposta": "Substituir a cada 3 meses (limpar semanalmente)."}
+{"pergunta": "A bateria do robô tem quantos anos de garantia?", "fonte": "manual_lusaclean_x2.md", "secao": "6. Garantia", "resposta": "2 anos ou 500 ciclos de carga, o que ocorrer primeiro."}
+{"pergunta": "Qual é o horário da cantina?", "fonte": null, "secao": null, "resposta": "Não está nos documentos."}
+{"pergunta": "A empresa paga ginásio?", "fonte": null, "secao": null, "resposta": "Não está nos documentos."}
