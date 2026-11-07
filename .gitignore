@@ -6,3 +6,5 @@ __pycache__/
 data/raw/
 models/
 .DS_Store
+# Bases de dados geradas pelos use cases
+*.db
