@@ -112,7 +112,7 @@ class RAG:
             f'<excerto id="{i}" fonte="{c.fonte}" secao="{c.secao}">\n{c.texto}\n</excerto>'
             for i, (c, _) in enumerate(recs, 1))
         r = self.llm.messages.create(
-            model=MODELO_LLM, max_tokens=500, temperature=0, system=SYSTEM,
+            model=MODELO_LLM, max_tokens=500, system=SYSTEM,
             messages=[{"role": "user", "content": f"<contexto>\n{contexto}\n</contexto>\n\nPergunta: {pergunta}"}])
         texto = r.content[0].text
         citados = sorted({int(n) for n in re.findall(r"\[(\d+)\]", texto)})

@@ -67,7 +67,7 @@ def responder(mensagem, historico):
     system = SYSTEM + (f"\n\nResumo da conversa até agora: {resumo}" if resumo else "")
     pedido = [{"role": "system", "content": system}] + ativas + [{"role": "user", "content": mensagem}]
     texto = ""
-    for pedaco in completion(model=MODELO, messages=pedido, stream=True, max_tokens=400, temperature=0.3):
+    for pedaco in completion(model=MODELO, messages=pedido, stream=True, max_tokens=400):
         texto += pedaco.choices[0].delta.content or ""
         yield texto
 
