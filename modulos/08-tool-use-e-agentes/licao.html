@@ -28,30 +28,182 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Function calling e o ciclo ReAct: pensar, agir, observar</a></li><li><a href="#s2">Padrões de workflow: prompt chaining, routing, paralelização, avaliador-otimizador</a></li><li><a href="#s3">Memória de curto e longo prazo</a></li><li><a href="#s4">Execução de código em sandbox</a></li><li><a href="#s5">Frameworks: LangGraph, OpenAI Agents SDK, Claude Agent SDK, PydanticAI, smolagents</a></li></ol>
+    <ol>
+      <li><a href="#s1">Function calling</a></li>
+      <li><a href="#s2">O ciclo de um agente</a></li>
+      <li><a href="#s3">Workflows ou agentes?</a></li>
+      <li><a href="#s4">Desenhar boas ferramentas</a></li>
+      <li><a href="#s5">Memória</a></li>
+      <li><a href="#s6">Executar código em segurança</a></li>
+      <li><a href="#s7">Frameworks de agentes</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Function calling</h2>
+  <p>Um LLM só produz texto. Para agir no mundo (consultar uma base de dados, enviar um email, correr código), descreves-lhe ferramentas e ele responde com um pedido estruturado para chamar uma delas. <strong>Quem executa é sempre a tua aplicação</strong>, que depois devolve o resultado ao modelo.</p>
+  <div class="codigo"><pre><code>ferramentas = [{
+    "name": "consultar_encomenda",
+    "description": "Devolve o estado, a data prevista e a transportadora de uma encomenda. "
+                   "Usa quando o cliente pergunta onde está ou quando chega uma encomenda.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"numero": {"type": "string", "description": "Formato LL-NNNNN"}},
+        "required": ["numero"],
+    },
+}]
 
-  <h2 id="s1">Function calling e o ciclo ReAct: pensar, agir, observar</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Padrões de workflow: prompt chaining, routing, paralelização, avaliador-otimizador</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Memória de curto e longo prazo</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Execução de código em sandbox</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Frameworks: LangGraph, OpenAI Agents SDK, Claude Agent SDK, PydanticAI, smolagents</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+r = client.messages.create(model="claude-haiku-5-5", max_tokens=500, tools=ferramentas,
+                           messages=[{"role": "user", "content": "Onde está a LL-20931?"}])
+# r.stop_reason == "tool_use"
+# r.content → [ToolUseBlock(name="consultar_encomenda", input={"numero": "LL-20931"}, id="toolu_...")]</code></pre></div>
+  <p>A aplicação executa a função, e envia uma nova mensagem com um bloco <code>tool_result</code> que referencia o <code>id</code> do pedido. O modelo usa o resultado para responder ou para pedir outra ferramenta.</p>
+
+  <h2 id="s2">O ciclo de um agente</h2>
+  <p>Um <strong>agente</strong> é um LLM a usar ferramentas em ciclo, decidindo ele próprio os passos, até concluir a tarefa. O padrão chama-se <strong>ReAct</strong> (raciocinar e agir). Avança passo a passo neste exemplo:</p>
+  <div class="demo" id="loop">
+    <div id="loop-passos" style="display:grid;gap:6px"></div>
+    <p style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn" id="loop-next">Próximo passo</button><button type="button" class="btn" id="loop-reset" style="background:var(--muted)">Recomeçar</button></p>
+  </div>
+  <div class="codigo"><pre><code>def agente(pergunta, ferramentas, executar, max_passos=10):
+    msgs = [{"role": "user", "content": pergunta}]
+    for _ in range(max_passos):
+        r = client.messages.create(model=MODELO, max_tokens=2000, tools=ferramentas, messages=msgs)
+        msgs.append({"role": "assistant", "content": r.content})
+        if r.stop_reason != "tool_use":
+            return r.content[-1].text                     # terminou
+        resultados = [{"type": "tool_result", "tool_use_id": b.id, "content": executar(b.name, b.input)}
+                      for b in r.content if b.type == "tool_use"]
+        msgs.append({"role": "user", "content": resultados})
+    return "Limite de passos atingido"</code></pre></div>
+  <div class="nota atencao"><strong>Limites</strong><p>Põe sempre um máximo de passos e um orçamento de tokens. Um agente pode entrar em ciclo, por exemplo a repetir a mesma pesquisa que falha.</p></div>
+
+  <h2 id="s3">Workflows ou agentes?</h2>
+  <p>Nem tudo precisa de um agente autónomo. Um <strong>workflow</strong> segue caminhos definidos por ti em código; um <strong>agente</strong> decide o caminho. Os workflows são mais previsíveis, baratos e fáceis de testar. Começa pelo mais simples que resolve o problema.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Padrão</th><th>Como funciona</th><th>Exemplo</th></tr></thead>
+    <tbody>
+      <tr><td>Prompt chaining</td><td>Sequência fixa de chamadas, cada uma usa a saída da anterior</td><td>Extrair dados → validar → redigir email</td></tr>
+      <tr><td>Routing</td><td>Um classificador escolhe o caminho especializado</td><td>Faturação vai para um prompt, avarias para outro</td></tr>
+      <tr><td>Paralelização</td><td>Várias chamadas independentes ao mesmo tempo, depois junta</td><td>Analisar 10 contratos em paralelo; votar entre 3 respostas</td></tr>
+      <tr><td>Orquestrador-trabalhadores</td><td>Um LLM divide a tarefa dinamicamente e delega</td><td>Pesquisa sobre um tema com subtópicos imprevisíveis</td></tr>
+      <tr><td>Avaliador-otimizador</td><td>Um gera, outro critica, repete até cumprir critérios</td><td>Tradução jurídica revista até não haver erros</td></tr>
+      <tr><td>Agente</td><td>O LLM decide ferramentas e passos em ciclo</td><td>Analisar um CSV desconhecido e responder a uma pergunta de negócio</td></tr>
+    </tbody>
+  </table></div>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  E[Email do cliente] --> R{Router}
+  R -- faturação --> F[Prompt de faturação + ferramenta de faturas]
+  R -- avaria --> A[Prompt técnico + base de avarias]
+  R -- outro --> H[Encaminhar para humano]
+    </pre>
+    <figcaption>Routing: um workflow simples que muitas vezes substitui um agente.</figcaption>
+  </figure>
+
+  <h2 id="s4">Desenhar boas ferramentas</h2>
+  <p>O modelo só sabe o que a ferramenta faz pelo nome, pela descrição e pelo schema. Trata-os como documentação para um colega novo.</p>
+  <ul>
+    <li><strong>Nomes e descrições explícitos</strong>: quando usar, quando não usar, formato dos argumentos, exemplos.</li>
+    <li><strong>Poucas ferramentas bem escolhidas</strong>: 5 ferramentas claras funcionam melhor que 30 sobrepostas.</li>
+    <li><strong>Erros que ajudam</strong>: «Encomenda LL-2093 não existe. O formato é LL seguido de 5 dígitos» permite ao modelo corrigir-se; «Erro 404» não.</li>
+    <li><strong>Resultados concisos</strong>: devolve só os campos úteis, pagina listas longas. Cada token do resultado volta a entrar no contexto.</li>
+    <li><strong>Ferramentas de alto nível</strong>: <code>agendar_reuniao(pessoas, duracao)</code> é melhor do que obrigar o modelo a encadear <code>listar_calendarios</code>, <code>ver_disponibilidade</code> e <code>criar_evento</code>.</li>
+  </ul>
+
+  <h2 id="s5">Memória</h2>
+  <ul>
+    <li><strong>Curto prazo</strong>: o histórico de mensagens do ciclo atual, incluindo resultados de ferramentas. Em tarefas longas, resume ou remove resultados antigos (compactação).</li>
+    <li><strong>Longo prazo</strong>: factos e preferências guardados numa base (vetorial ou relacional) e recuperados no início de cada tarefa, como no módulo 3.</li>
+    <li><strong>Bloco de notas</strong>: uma ferramenta para o agente escrever e ler notas (por exemplo um ficheiro de progresso), útil em tarefas com muitos passos.</li>
+  </ul>
+
+  <h2 id="s6">Executar código em segurança</h2>
+  <p>Dar ao agente uma ferramenta «executar Python» torna-o muito capaz em análise de dados. Também o torna perigoso: o código pode apagar ficheiros, ler segredos ou fazer pedidos de rede, sobretudo se o input do utilizador ou de um documento o manipular.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Opção</th><th>Isolamento</th><th>Uso</th></tr></thead>
+    <tbody>
+      <tr><td>Subprocesso com timeout numa pasta temporária</td><td>Fraco: protege de erros, não de ataques</td><td>Aprendizagem e dados teus</td></tr>
+      <tr><td>Contentor Docker sem rede e com limites de CPU e memória</td><td>Bom</td><td>Projetos internos</td></tr>
+      <tr><td>Sandboxes geridas (E2B, Modal, Daytona)</td><td>Forte, máquinas descartáveis</td><td>Produção com utilizadores externos</td></tr>
+      <tr><td>Ferramentas de execução de código dos fornecedores de LLM</td><td>Forte, gerido pelo fornecedor</td><td>Quando os dados podem ir para o fornecedor</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s7">Frameworks de agentes</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Framework</th><th>Ideia central</th><th>Bom para</th></tr></thead>
+    <tbody>
+      <tr><td>LangGraph</td><td>O agente é um grafo de estados com nós e arestas condicionais; checkpoints e human-in-the-loop</td><td>Fluxos complexos e duráveis, controlo fino</td></tr>
+      <tr><td>OpenAI Agents SDK</td><td>Agentes, ferramentas, handoffs e guardrails com pouco código</td><td>Multi-agente simples, ecossistema OpenAI</td></tr>
+      <tr><td>Claude Agent SDK</td><td>O ciclo de agente do Claude Code como biblioteca: ficheiros, terminal, MCP, subagentes</td><td>Agentes que trabalham com ficheiros e código</td></tr>
+      <tr><td>PydanticAI</td><td>Agentes tipados com Pydantic, injeção de dependências</td><td>Código Python limpo e testável</td></tr>
+      <tr><td>smolagents (Hugging Face)</td><td>Agentes que escrevem código Python em vez de JSON</td><td>Modelos abertos, experimentação</td></tr>
+      <tr><td>CrewAI</td><td>Equipas de agentes com papéis</td><td>Protótipos multi-agente rápidos</td></tr>
+    </tbody>
+  </table></div>
+  <p>Escreve o primeiro agente sem framework (são 20 linhas, como acima). Assim percebes o que cada framework faz por ti e consegues depurar quando algo corre mal.</p>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="1" data-explicacao="O modelo só devolve um pedido estruturado. A aplicação decide se executa, executa e devolve o resultado.">
+    <p class="pergunta">Em function calling, quem executa a função?</p>
+    <div class="opcoes"><button>O fornecedor do LLM, nos seus servidores</button><button>A tua aplicação, depois de receber o pedido do modelo</button><button>O próprio modelo, durante a geração</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="Classificar e encaminhar para um de três caminhos fixos é routing. Um agente acrescentaria imprevisibilidade e custo sem benefício.">
+    <p class="pergunta">Emails de clientes devem ir para um de três processos fixos conforme o tema. Que padrão usas?</p>
+    <div class="opcoes"><button>Agente autónomo com todas as ferramentas</button><button>Sistema multi-agente</button><button>Routing</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Uma mensagem de erro que explica o problema e o formato esperado permite ao modelo corrigir o argumento na chamada seguinte.">
+    <p class="pergunta">Que resposta de erro de uma ferramenta ajuda mais o agente?</p>
+    <div class="opcoes"><button>«Cliente 4417 não encontrado. Os IDs de cliente têm 6 dígitos, por exemplo 004417.»</button><button>«Erro 404»</button><button>Uma exceção Python completa com stack trace</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="Um subprocesso não isola o sistema de ficheiros nem a rede. Com dados ou pedidos de terceiros, é preciso um contentor ou uma sandbox gerida.">
+    <p class="pergunta">O teu agente de análise de dados vai ser usado por clientes externos. Onde corre o código gerado?</p>
+    <div class="opcoes"><button>Num subprocesso no servidor da aplicação</button><button>Numa sandbox isolada (contentor sem rede ou serviço gerido)</button><button>Diretamente com exec() no processo principal</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: desenha as ferramentas de um agente que marca consultas numa clínica.</summary><p>Uma proposta: <code>procurar_disponibilidade(especialidade, data_inicio, data_fim)</code> devolve até 10 vagas; <code>marcar_consulta(id_vaga, nome, telefone)</code> marca e devolve confirmação; <code>cancelar_consulta(id_marcacao)</code>. Descrições com formatos de data, mensagens de erro úteis (vaga já ocupada, sugere as seguintes) e confirmação explícita do utilizador antes de marcar ou cancelar.</p></details>
+
+<script>
+(() => {
+  const passos = [
+    ['utilizador', 'Qual foi o mês com mais vendas em 2025 e quanto cresceu face ao mesmo mês de 2024?'],
+    ['pensa', 'Preciso de ver a estrutura dos dados antes de calcular.'],
+    ['ferramenta', 'descrever_dados() '],
+    ['observa', 'vendas.csv: 48 210 linhas; colunas data, loja, categoria, valor_eur'],
+    ['pensa', 'Agrupo por mês, filtro 2025, encontro o máximo e comparo com 2024.'],
+    ['ferramenta', 'executar_python("df[\'mes\'] = pd.to_datetime(df.data).dt.to_period(\'M\') ...")'],
+    ['observa', 'mes_max=2025-12, total=1 284 300 €; 2024-12: 1 102 900 €'],
+    ['pensa', 'Crescimento = 1 284 300 / 1 102 900 − 1 = 16,4%. Tenho tudo.'],
+    ['resposta', 'O melhor mês de 2025 foi dezembro, com 1,28 M€, mais 16,4% do que em dezembro de 2024.'],
+  ];
+  const cores = { utilizador: 'var(--surface)', pensa: 'var(--bg)', ferramenta: 'var(--heat-soft)', observa: 'var(--accent-soft)', resposta: 'var(--ok-soft)' };
+  const nomes = { utilizador: 'Utilizador', pensa: 'Modelo pensa', ferramenta: 'Modelo pede ferramenta', observa: 'Aplicação devolve resultado', resposta: 'Resposta final' };
+  let i = 1;
+  const box = document.getElementById('loop-passos');
+  function render() {
+    box.innerHTML = '';
+    passos.slice(0, i).forEach(([t, txt]) => {
+      const d = document.createElement('div');
+      d.style.cssText = `padding:8px 12px;border-radius:6px;border:1px solid var(--line);background:${cores[t]};font-size:.9rem`;
+      d.innerHTML = `<strong style="font:500 .72rem var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${nomes[t]}</strong><br>`;
+      const s = document.createElement('span'); s.textContent = txt; if (t === 'ferramenta') s.style.fontFamily = 'var(--f-mono)';
+      d.append(s); box.append(d);
+    });
+    document.getElementById('loop-next').disabled = i >= passos.length;
+  }
+  document.getElementById('loop-next').addEventListener('click', () => { i = Math.min(i + 1, passos.length); render(); });
+  document.getElementById('loop-reset').addEventListener('click', () => { i = 1; render(); });
+  render();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Com function calling, o modelo pede para chamar ferramentas descritas por JSON Schema e a aplicação executa-as e devolve o resultado. Um agente é este ciclo repetido até o modelo decidir que terminou: pensar, agir, observar. Antes de construir um agente autónomo, vê se um workflow chega (encadear prompts, encaminhar, paralelizar, orquestrar, avaliar e otimizar), porque é mais previsível e barato. A qualidade de um agente depende muito do desenho das ferramentas: nomes claros, descrições completas, erros úteis e resultados concisos. Código gerado pelo modelo corre sempre numa sandbox.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="08">Marcar lição como concluída</button></p>
   </section>

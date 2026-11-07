@@ -37,13 +37,16 @@ rag = [
     "networkx",
     "ragas",
     "langchain-anthropic",
+    "langgraph-checkpoint-sqlite",
     "langfuse",
     "pytest",
 ]
 agentes = [
     "langgraph",
+    "langchain-anthropic",
+    "langgraph-checkpoint-sqlite",
     "pydantic-ai",
-    "mcp",
+    "mcp>=1.10,<2",
     "playwright",
 ]
 finetuning = [
