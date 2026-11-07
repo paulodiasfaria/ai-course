@@ -28,30 +28,205 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Quantização: GGUF, AWQ, GPTQ, FP8</a></li><li><a href="#s2">Servidores de inferência: vLLM, SGLang, TGI; continuous batching e PagedAttention</a></li><li><a href="#s3">Speculative decoding e otimização do KV cache</a></li><li><a href="#s4">FastAPI, Docker e deploy na nuvem (Modal, Hugging Face Spaces, AWS, Azure ou GCP)</a></li><li><a href="#s5">Gateways de modelos, caching semântico, rate limiting e gestão de custos</a></li></ol>
+    <ol>
+      <li><a href="#s1">Para onde vai a memória da GPU</a></li>
+      <li><a href="#s2">Quantização: FP8, AWQ, GPTQ e GGUF</a></li>
+      <li><a href="#s3">Servidores de inferência: vLLM, SGLang e companhia</a></li>
+      <li><a href="#s4">Mais rápido: speculative decoding e prefix caching</a></li>
+      <li><a href="#s5">Da GPU à API: FastAPI, Docker e deploy</a></li>
+      <li><a href="#s6">Gateways, cache, limites e custos</a></li>
+      <li><a href="#s7">Monitorizar em produção</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Para onde vai a memória da GPU</h2>
+  <p>Na inferência, a memória da GPU tem dois grandes consumidores:</p>
+  <ul>
+    <li><strong>Pesos</strong>: número de parâmetros vezes bytes por parâmetro. Um modelo de 7 mil milhões em bf16 (2 bytes) ocupa ~15 GB; a 4 bits, ~4 GB.</li>
+    <li><strong>KV cache</strong>: para não recalcular a atenção sobre todo o texto a cada token, o modelo guarda as chaves e os valores de cada token já processado, em cada camada. Cresce com o comprimento do contexto e com o número de pedidos em simultâneo. Por token: 2 × camadas × dimensão KV × bytes.</li>
+  </ul>
+  <p>A geração tem duas fases com perfis diferentes. O <strong>prefill</strong> processa o prompt todo de uma vez (limitado pelo cálculo) e determina o <strong>tempo até ao primeiro token</strong> (TTFT). O <strong>decode</strong> gera um token de cada vez (limitado pela largura de banda da memória, porque lê todos os pesos para cada token) e determina o <strong>tempo por token</strong>. Servir vários pedidos em lote aproveita cada leitura dos pesos para vários pedidos: é daí que vem o ganho dos servidores de inferência.</p>
+  <div class="demo" id="kv">
+    <label for="kv-m">Modelo</label>
+    <select id="kv-m" style="font:0.95rem var(--f-mono);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)"></select>
+    <label for="kv-q">Precisão dos pesos: <output id="kv-q-v"></output></label>
+    <input type="range" id="kv-q" min="0" max="2" value="0">
+    <label for="kv-c">Contexto por pedido (tokens): <output id="kv-c-v"></output></label>
+    <input type="range" id="kv-c" min="0" max="6" value="2">
+    <label for="kv-g">GPU: <output id="kv-g-v"></output></label>
+    <input type="range" id="kv-g" min="0" max="3" value="1">
+    <div id="kv-out" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px"></div>
+    <div id="kv-bar" style="height:22px;border-radius:4px;overflow:hidden;display:flex;background:var(--line)"></div>
+    <p style="font-size:.82rem;color:var(--muted);margin:0">KV cache em bf16, 90 % da memória disponível para o servidor. A reserva estática guarda o contexto máximo para cada pedido; com PagedAttention os blocos são atribuídos à medida, aqui assumindo que os pedidos usam em média 30 % do contexto máximo.</p>
+  </div>
 
-  <h2 id="s1">Quantização: GGUF, AWQ, GPTQ, FP8</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Servidores de inferência: vLLM, SGLang, TGI; continuous batching e PagedAttention</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Speculative decoding e otimização do KV cache</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">FastAPI, Docker e deploy na nuvem (Modal, Hugging Face Spaces, AWS, Azure ou GCP)</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Gateways de modelos, caching semântico, rate limiting e gestão de custos</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">Quantização: FP8, AWQ, GPTQ e GGUF</h2>
+  <p>Quantizar é guardar os pesos (e às vezes as ativações) com menos bits. Os métodos diferem em como escolhem as escalas para perder o mínimo:</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Formato</th><th>Bits</th><th>Como funciona</th><th>Onde se usa</th></tr></thead>
+    <tbody>
+      <tr><td>FP8</td><td>8 (pesos e ativações)</td><td>Escala por canal ou por token, sem dados de calibração; perda quase nula</td><td>GPUs recentes (H100, L4, RTX 40xx) com vLLM e SGLang</td></tr>
+      <tr><td>GPTQ</td><td>4 (às vezes 3 ou 8)</td><td>Quantiza camada a camada e corrige o erro com informação de segunda ordem, usando dados de calibração</td><td>GPUs, vLLM; formato W4A16 do <code>llm-compressor</code></td></tr>
+      <tr><td>AWQ</td><td>4</td><td>Protege os canais de pesos mais importantes para as ativações, com calibração</td><td>GPUs, vLLM</td></tr>
+      <tr><td>GGUF (k-quants)</td><td>2 a 8, por exemplo Q4_K_M</td><td>Blocos com escalas próprias, pensados para CPU e Apple Silicon</td><td>llama.cpp, Ollama, LM Studio</td></tr>
+      <tr><td>bitsandbytes NF4</td><td>4</td><td>Quantização no carregamento, sem preparação</td><td>QLoRA e experiências; lento para servir</td></tr>
+    </tbody>
+  </table></div>
+  <p>Regras práticas: 8 bits quase nunca se nota; 4 bits costuma perder pouco em modelos de 7 mil milhões ou mais, mas modelos pequenos são mais sensíveis; abaixo de 4 bits a qualidade cai depressa. Mede sempre na tua tarefa, com o conjunto de teste do módulo 11, porque os benchmarks gerais escondem perdas em tarefas estreitas como extrair números de encomenda.</p>
+  <div class="codigo"><pre><code>from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import GPTQModifier
+
+receita = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+oneshot(model=modelo, dataset=calibracao, recipe=receita, max_seq_length=512, num_calibration_samples=256)
+modelo.save_pretrained("modelo_w4a16", save_compressed=True)   # o vLLM carrega diretamente</code></pre></div>
+
+  <h2 id="s3">Servidores de inferência: vLLM, SGLang e companhia</h2>
+  <p>Um ciclo <code>model.generate()</code> com transformers serve um pedido de cada vez e reserva memória para o pior caso. Os servidores de inferência resolvem isto com três ideias:</p>
+  <ul>
+    <li><strong>Continuous batching</strong>: em vez de esperar que um lote inteiro termine, o servidor junta e retira pedidos do lote a cada passo de geração. Um pedido curto não fica preso atrás de um longo e a GPU está sempre cheia.</li>
+    <li><strong>PagedAttention</strong>: o KV cache é dividido em blocos pequenos, atribuídos à medida que o texto cresce, como a memória virtual de um sistema operativo. Quase não há desperdício, o que permite muitos mais pedidos em simultâneo (vê a demo acima).</li>
+    <li><strong>API compatível com a da OpenAI</strong>: o mesmo cliente que usas para os modelos da API funciona com o teu modelo, incluindo saídas JSON com esquema.</li>
+  </ul>
+  <div class="tabela"><table>
+    <thead><tr><th>Servidor</th><th>Pontos fortes</th></tr></thead>
+    <tbody>
+      <tr><td>vLLM</td><td>O mais usado; muitos modelos e formatos de quantização; LoRA múltiplos; saídas estruturadas</td></tr>
+      <tr><td>SGLang</td><td>Muito rápido com prefixos partilhados (RadixAttention) e em fluxos com várias chamadas</td></tr>
+      <tr><td>TGI (Hugging Face)</td><td>Integrado no ecossistema Hugging Face e nos Inference Endpoints</td></tr>
+      <tr><td>TensorRT-LLM / NVIDIA Dynamo</td><td>Máximo desempenho em GPUs NVIDIA, com mais trabalho de configuração</td></tr>
+      <tr><td>llama.cpp / Ollama</td><td>CPU, Mac e portáteis; ótimo para desenvolvimento e uso local, não para muitos utilizadores</td></tr>
+    </tbody>
+  </table></div>
+  <div class="codigo"><pre><code>vllm serve ./modelo_w4a16 --served-model-name reclamacoes --max-model-len 2048 --gpu-memory-utilization 0.85
+
+curl localhost:8000/v1/chat/completions -H 'Content-Type: application/json' -d '{
+  "model": "reclamacoes",
+  "messages": [{"role": "user", "content": "A encomenda 51234 nunca chegou"}],
+  "response_format": {"type": "json_schema", "json_schema": {"name": "extracao", "schema": {...}}}
+}'</code></pre></div>
+
+  <h2 id="s4">Mais rápido: speculative decoding e prefix caching</h2>
+  <ul>
+    <li><strong>Speculative decoding</strong>: um modelo pequeno (ou cabeças extra do próprio modelo, como no EAGLE e no Medusa, ou n-gramas do prompt) propõe vários tokens e o modelo grande verifica-os todos num só passo. Quando acerta, gera vários tokens pelo custo de um. O resultado é idêntico ao do modelo grande; só muda a velocidade.</li>
+    <li><strong>Prefix caching</strong>: pedidos que começam pelo mesmo texto (o mesmo system prompt, os mesmos exemplos few-shot, o mesmo documento) reaproveitam o KV cache desse prefixo. É a versão local do prompt caching das APIs: põe o que é fixo no início do prompt.</li>
+    <li><strong>KV cache quantizado</strong> (FP8) e <strong>atenção com menos cabeças KV</strong> (GQA, MLA nos modelos DeepSeek) reduzem a memória por token e permitem contextos e lotes maiores.</li>
+    <li><strong>Separar prefill e decode</strong> em GPUs diferentes é o que fazem os maiores serviços; só compensa a escala muito grande.</li>
+  </ul>
+
+  <h2 id="s5">Da GPU à API: FastAPI, Docker e deploy</h2>
+  <p>O servidor de inferência não deve ficar exposto diretamente. À frente pões uma API tua que valida pedidos, aplica o prompt certo, verifica a resposta e regista métricas:</p>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  C[Clientes] -->|X-API-Key| A[API FastAPI]
+  A -->|cache| K[(Cache)]
+  A -->|OpenAI API| V[vLLM + modelo quantizado]
+  A -.->|fallback se inválido| F[Modelo de API]
+  A --> M[(Métricas)]
+  M --> P[Painel]
+    </pre>
+    <figcaption>O use case deste módulo: dois contentores (API e vLLM) com Docker Compose, mais um painel.</figcaption>
+  </figure>
+  <div class="codigo"><pre><code>@app.post("/classificar")
+async def classificar(pedido: Pedido, chave: str = Depends(autenticar)) -> Resposta:
+    if (r := cache.get(chave_de(pedido.texto))):
+        return r
+    saida = await chamar_vllm(pedido.texto)          # httpx assíncrono, timeout curto
+    extracao = validar(saida) or await fallback(pedido.texto)
+    registar_metricas(...)
+    return extracao</code></pre></div>
+  <div class="tabela"><table>
+    <thead><tr><th>Onde pôr</th><th>Bom para</th></tr></thead>
+    <tbody>
+      <tr><td>Modal, RunPod, Replicate</td><td>GPU sem servidor: paga ao segundo, escala a zero; ótimo para tráfego irregular</td></tr>
+      <tr><td>Hugging Face Inference Endpoints / Spaces</td><td>Deploy rápido a partir do Hub</td></tr>
+      <tr><td>AWS (SageMaker, EKS), Azure (AKS, Azure ML), GCP (Cloud Run com GPU, GKE, Vertex AI)</td><td>Quando a empresa já está nessa nuvem; mais controlo e mais trabalho</td></tr>
+      <tr><td>Servidor próprio</td><td>Tráfego constante e alto, dados que não podem sair</td></tr>
+    </tbody>
+  </table></div>
+  <div class="nota"><strong>Escalar a zero tem um preço</strong><p>Arrancar um contentor com um modelo pode demorar de 30 segundos a vários minutos (cold start). Para tráfego interativo, mantém pelo menos uma réplica ligada ou usa uma API de modelos para o tráfego inicial.</p></div>
+
+  <h2 id="s6">Gateways, cache, limites e custos</h2>
+  <ul>
+    <li><strong>Gateway de modelos</strong> (LiteLLM Proxy, Portkey, OpenRouter, Cloudflare AI Gateway): uma porta única para vários fornecedores e modelos próprios, com chaves por equipa, orçamentos, fallback e registo centralizado.</li>
+    <li><strong>Cache exata</strong>: o mesmo texto devolve a mesma resposta sem chamar o modelo. Barata e segura para tarefas deterministas como a nossa.</li>
+    <li><strong>Cache semântica</strong>: pedidos parecidos (embedding próximo) reaproveitam a resposta. Poupa mais, mas pode devolver a resposta de uma pergunta diferente; usa um limiar alto e só onde um erro é barato.</li>
+    <li><strong>Rate limiting</strong>: limites por chave (pedidos e tokens por minuto) protegem a GPU e o orçamento de um cliente com um ciclo infinito.</li>
+    <li><strong>Encaminhamento por custo</strong>: pedidos fáceis para o modelo pequeno, difíceis ou com baixa confiança para um grande.</li>
+  </ul>
+
+  <h2 id="s7">Monitorizar em produção</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Dimensão</th><th>Métricas</th><th>Alerta típico</th></tr></thead>
+    <tbody>
+      <tr><td>Latência</td><td>TTFT, tempo por token, latência total p50, p95 e p99</td><td>p95 acima do SLA durante 5 minutos</td></tr>
+      <tr><td>Débito e saturação</td><td>Pedidos por segundo, tokens por segundo, fila do servidor, uso do KV cache</td><td>Fila a crescer: escalar</td></tr>
+      <tr><td>Fiabilidade</td><td>Erros, timeouts, respostas inválidas, uso do fallback</td><td>Respostas inválidas acima de 1 %</td></tr>
+      <tr><td>Custo</td><td>Custo por pedido e por cliente, taxa de acerto da cache</td><td>Gasto diário acima do orçamento</td></tr>
+      <tr><td>Qualidade</td><td>Amostra diária avaliada por um juiz ou por pessoas; distribuição das classes previstas</td><td>Distribuição muda de repente (drift): os clientes começaram a reclamar de outra coisa, ou o modelo partiu-se</td></tr>
+    </tbody>
+  </table></div>
+  <p>O vLLM expõe métricas no formato Prometheus em <code>/metrics</code>; com Grafana tens painéis prontos. O Langfuse e o Phoenix do módulo 7 tratam dos traces e da avaliação de qualidade. No use case fazemos uma versão mínima: a API grava cada pedido em SQLite e um painel mostra latência, débito, custo e distribuição das categorias.</p>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="1" data-explicacao="Com reserva estática, cada pedido ocupa o contexto máximo mesmo que use pouco. O PagedAttention atribui blocos à medida e permite muitos mais pedidos em simultâneo.">
+    <p class="pergunta">Porque é que o vLLM atende muito mais pedidos em simultâneo do que um ciclo simples com transformers?</p>
+    <div class="opcoes"><button>Porque usa sempre pesos de 4 bits</button><button>Porque gere o KV cache em blocos atribuídos à medida e junta pedidos ao lote a cada passo</button><button>Porque corta as respostas mais cedo</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Benchmarks gerais podem esconder perdas em tarefas estreitas. A única forma de saber é avaliar o modelo quantizado no teu conjunto de teste.">
+    <p class="pergunta">Quantizaste o modelo do módulo 11 para 4 bits. Como sabes se a qualidade se mantém?</p>
+    <div class="opcoes"><button>Avalias no mesmo conjunto de teste da tarefa e comparas com a versão em 16 bits</button><button>Consultas a perplexidade publicada para o modelo base</button><button>4 bits mantém sempre a qualidade</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="O decode lê todos os pesos para gerar cada token; juntar vários pedidos no mesmo passo reaproveita essa leitura.">
+    <p class="pergunta">Na fase de decode, o que limita a velocidade de geração de um único pedido?</p>
+    <div class="opcoes"><button>O tamanho do prompt</button><button>A velocidade da rede</button><button>A largura de banda da memória da GPU, porque cada token lê todos os pesos</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="Pedidos diferentes mas parecidos podem receber a resposta de outro pedido. Em classificação de reclamações, isso pode significar a categoria errada para um cliente.">
+    <p class="pergunta">Qual é o risco principal de uma cache semântica?</p>
+    <div class="opcoes"><button>Gastar muita memória</button><button>Devolver a resposta de um pedido parecido mas diferente</button><button>Não funcionar com modelos quantizados</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: o p95 da latência triplicou desde ontem, sem alterações no código. Onde procuras?</summary><p>Primeiro na carga: mais pedidos por segundo ou pedidos mais longos (fila do vLLM, uso do KV cache, tamanho médio do prompt). Depois na infraestrutura: menos réplicas, GPU diferente, outro processo na mesma GPU. Depois na cache: a taxa de acerto caiu? Por fim no fallback: se o modelo começou a produzir respostas inválidas, cada pedido faz duas chamadas. As métricas por componente dizem-te qual destas é, sem adivinhar.</p></details>
+
+<script>
+(() => {
+  const M = [['Qwen2.5 1,5B', 1.54, 28, 256], ['Qwen2.5 7B', 7.62, 28, 512], ['Qwen2.5 14B', 14.7, 48, 1024], ['Llama 3.3 70B', 70.6, 80, 1024]];
+  const Q = [['bf16', 2], ['8 bits (FP8)', 1.05], ['4 bits (AWQ/GPTQ)', 0.6]];
+  const C = [1024, 2048, 4096, 8192, 16384, 32768, 131072];
+  const G = [['T4 16 GB', 16], ['L4 / A10 24 GB', 24], ['L40S 48 GB', 48], ['H100 80 GB', 80]];
+  const $ = id => document.getElementById(id);
+  const sel = $('kv-m');
+  M.forEach((m, i) => { const o = document.createElement('option'); o.value = i; o.textContent = m[0]; sel.append(o); });
+  const card = (t, v, sub, bg) => `<div style="background:${bg};border-radius:6px;padding:10px 12px"><div style="font:500 .75rem var(--f-mono);color:var(--muted)">${t}</div><div style="font:700 1.3rem var(--f-display);color:var(--fg)">${v}</div><div style="font-size:.8rem;color:var(--muted)">${sub}</div></div>`;
+  const f1 = x => x.toFixed(1).replace('.', ',');
+  function render() {
+    const [, P, L, kv] = M[+sel.value], [qn, qb] = Q[+$('kv-q').value], ctx = C[+$('kv-c').value], [gn, gm] = G[+$('kv-g').value];
+    $('kv-q-v').textContent = qn; $('kv-c-v').textContent = ctx.toLocaleString('pt-PT'); $('kv-g-v').textContent = gn;
+    const pesos = P * qb, util = gm * 0.9, livre = util - pesos - 1;
+    const porTok = 2 * L * kv * 2;                       // bytes por token
+    const porPedido = porTok * ctx / 1e9;
+    const estatico = livre > 0 ? Math.floor(livre / porPedido) : 0;
+    const paginado = livre > 0 ? Math.floor(livre / (porPedido * 0.3)) : 0;
+    const bg = n => n >= 16 ? 'var(--ok-soft)' : n >= 2 ? 'var(--heat-soft)' : 'var(--bad-soft)';
+    $('kv-out').innerHTML =
+      card('Pesos', f1(pesos) + ' GB', livre > 0 ? 'cabem na GPU' : 'não cabem nesta GPU', livre > 0 ? 'var(--accent-soft)' : 'var(--bad-soft)') +
+      card('KV cache por pedido', porPedido >= 1 ? f1(porPedido) + ' GB' : Math.round(porPedido * 1000) + ' MB', Math.round(porTok / 1024) + ' KB por token', 'var(--accent-soft)') +
+      card('Pedidos (reserva estática)', estatico, 'contexto máximo reservado', bg(estatico)) +
+      card('Pedidos (PagedAttention)', paginado, 'blocos atribuídos à medida', bg(paginado));
+    const w = Math.min(100, pesos / util * 100), k = livre > 0 ? Math.min(100 - w, Math.min(paginado, 999) * porPedido * 0.3 / util * 100) : 0;
+    $('kv-bar').innerHTML = `<div title="pesos" style="width:${w}%;background:var(--accent)"></div><div title="KV cache" style="width:${k}%;background:var(--heat)"></div>`;
+  }
+  ['kv-m', 'kv-q', 'kv-c', 'kv-g'].forEach(id => $(id).addEventListener('input', render));
+  render();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Servir um LLM bem é sobretudo gerir memória: os pesos e o KV cache de cada pedido têm de caber na GPU. A quantização (FP8, AWQ, GPTQ, GGUF) reduz os pesos para metade ou um quarto com pouca perda de qualidade, que tens de medir na tua tarefa. Servidores como o vLLM e o SGLang usam continuous batching e PagedAttention para atender dezenas de pedidos em simultâneo na mesma GPU, e expõem uma API compatível com a da OpenAI. À volta do modelo constróis uma API (FastAPI) em contentores (Docker), com cache, limites de pedidos, fallback e métricas de latência, custo e qualidade, porque em produção o que não medes degrada sem aviso.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="12">Marcar lição como concluída</button></p>
   </section>

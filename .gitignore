@@ -12,3 +12,9 @@ envios_pendentes.jsonl
 modulos/*/use-case/dados/
 modulos/*/use-case/relatorios/
 modulos/*/use-case/docs_partilhados/
+modulos/*/use-case/saidas/
+modulos/*/use-case/resultados/
+modulos/*/use-case/modelo_final/
+modulos/*/use-case/modelos/
+modulos/*/use-case/entrada/
+modulos/*/use-case/documentos.csv

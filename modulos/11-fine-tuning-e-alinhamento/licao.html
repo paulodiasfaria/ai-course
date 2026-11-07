@@ -28,32 +28,192 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Full fine-tuning vs PEFT: LoRA, QLoRA, DoRA</a></li><li><a href="#s2">Dados: formatação de chat, limpeza, dados sintéticos e destilação de modelos maiores</a></li><li><a href="#s3">SFT com TRL e Unsloth</a></li><li><a href="#s4">Alinhamento: RLHF, DPO, ORPO e GRPO</a></li><li><a href="#s5">Avaliação antes e depois, overfitting e esquecimento catastrófico</a></li><li><a href="#s6">Model merging e publicação no Hugging Face Hub</a></li></ol>
+    <ol>
+      <li><a href="#s1">Quando afinar e quando não</a></li>
+      <li><a href="#s2">Full fine-tuning vs PEFT: LoRA, QLoRA, DoRA</a></li>
+      <li><a href="#s3">Dados: formato de chat, limpeza e destilação</a></li>
+      <li><a href="#s4">SFT com TRL e Unsloth</a></li>
+      <li><a href="#s5">Alinhamento: RLHF, DPO, ORPO e GRPO</a></li>
+      <li><a href="#s6">Avaliar antes e depois</a></li>
+      <li><a href="#s7">Fundir, combinar e publicar</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Quando afinar e quando não</h2>
+  <p>Fine-tuning é a ferramenta mais cara de manter das três que já conheces. Antes de treinar, esgota as outras:</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Problema</th><th>Primeira escolha</th><th>Porquê</th></tr></thead>
+    <tbody>
+      <tr><td>O modelo não segue o formato ou o tom</td><td>Prompting com exemplos, structured outputs</td><td>Resolve a maior parte dos casos em minutos</td></tr>
+      <tr><td>O modelo não sabe factos da empresa</td><td>RAG</td><td>O conhecimento muda; o fine-tuning memoriza mal e não cita fontes</td></tr>
+      <tr><td>Tarefa estreita e repetitiva com volume alto (milhões de pedidos)</td><td>Fine-tuning de um modelo pequeno</td><td>Um modelo de 1 a 4 mil milhões afinado pode igualar um grande na tarefa, com menos latência e custo</td></tr>
+      <tr><td>Dados não podem sair da empresa, ou é preciso correr offline</td><td>Modelo aberto, afinado se necessário</td><td>Controlo total sobre onde corre</td></tr>
+      <tr><td>Comportamento difícil de descrever mas fácil de exemplificar (estilo de escrita, critério de classificação)</td><td>Fine-tuning</td><td>Centenas de exemplos ensinam o que um prompt não consegue explicar</td></tr>
+    </tbody>
+  </table></div>
+  <div class="nota"><strong>O caso deste módulo</strong><p>A Loja Lusa recebe milhares de reclamações por dia e quer classificá-las e extrair campos (categoria, urgência, número de encomenda, produto, o que o cliente pede). Um modelo grande faz isto bem, mas custa por pedido e depende de uma API externa. Vamos afinar um modelo de 1,5 mil milhões de parâmetros que corre numa GPU modesta e comparar.</p></div>
 
-  <h2 id="s1">Full fine-tuning vs PEFT: LoRA, QLoRA, DoRA</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Dados: formatação de chat, limpeza, dados sintéticos e destilação de modelos maiores</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">SFT com TRL e Unsloth</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Alinhamento: RLHF, DPO, ORPO e GRPO</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Avaliação antes e depois, overfitting e esquecimento catastrófico</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s6">Model merging e publicação no Hugging Face Hub</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">Full fine-tuning vs PEFT: LoRA, QLoRA, DoRA</h2>
+  <p>No <strong>full fine-tuning</strong> atualizas todos os pesos. Com o otimizador Adam, cada parâmetro precisa de cerca de 16 bytes na GPU (pesos, gradientes e dois momentos), o que põe um modelo de 7 mil milhões acima dos 100 GB. E cada tarefa gera uma cópia completa do modelo.</p>
+  <p>O <strong>LoRA</strong> (Low-Rank Adaptation) congela os pesos originais <em>W</em> e aprende uma correção de baixa característica: <em>W' = W + (α/r)·B·A</em>, onde <em>A</em> tem dimensão <em>r × d</em> e <em>B</em> tem <em>d × r</em>, com <em>r</em> pequeno (8 a 64). Só <em>A</em> e <em>B</em> são treinadas. O adaptador ocupa dezenas de megabytes e podes ter vários sobre o mesmo modelo base.</p>
+  <ul>
+    <li><strong>QLoRA</strong>: o modelo base fica quantizado a 4 bits (formato NF4) e o LoRA treina por cima em bf16. Junta dupla quantização e otimizadores paginados para caber em GPUs de 16 a 24 GB.</li>
+    <li><strong>DoRA</strong>: separa cada peso em magnitude e direção e aplica o LoRA só à direção. Costuma aproximar-se mais do full fine-tuning com o mesmo <em>r</em>, com algum custo de velocidade.</li>
+    <li><strong>Onde aplicar</strong>: aplicar a todas as camadas lineares (atenção e MLP, <code>target_modules="all-linear"</code>) dá normalmente melhores resultados do que só às projeções de atenção.</li>
+  </ul>
+  <p>Escolhe um modelo e vê quanto treinas e quanta memória precisas:</p>
+  <div class="demo" id="lora">
+    <label for="lora-m">Modelo (dimensões aproximadas da família Qwen2.5)</label>
+    <select id="lora-m" style="font:0.95rem var(--f-mono);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)"></select>
+    <label for="lora-r">Rank r: <output id="lora-r-v"></output></label>
+    <input type="range" id="lora-r" min="0" max="6" value="2">
+    <label style="display:flex;gap:8px;align-items:center;font:0.92rem var(--f-sans);color:var(--fg)"><input type="checkbox" id="lora-all" checked style="accent-color:var(--accent)"> Todas as camadas lineares (senão, só q e v da atenção)</label>
+    <div id="lora-out" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px"></div>
+    <p style="font-size:.82rem;color:var(--muted);margin:0">Estimativas grosseiras sem ativações (que crescem com o comprimento das sequências e o batch). Full: ~16 bytes por parâmetro. LoRA: base em bf16. QLoRA: base a ~0,55 bytes por parâmetro. Adaptadores com Adam.</p>
+  </div>
+
+  <h2 id="s3">Dados: formato de chat, limpeza e destilação</h2>
+  <p>A qualidade do modelo afinado é, sobretudo, a qualidade dos dados. Algumas centenas a poucos milhares de exemplos limpos e variados bastam para uma tarefa estreita; dez mil exemplos repetitivos ensinam menos.</p>
+  <ul>
+    <li><strong>Formato de chat</strong>: um modelo instruído espera o seu <em>chat template</em> (marcadores de sistema, utilizador e assistente). Guarda os exemplos como listas de mensagens e deixa o tokenizador aplicar o template; um template errado estraga o treino em silêncio.</li>
+    <li><strong>Treina só na resposta</strong>: a perda deve contar apenas os tokens do assistente, não o prompt. Com o formato <code>prompt</code>/<code>completion</code> do TRL isso acontece por omissão.</li>
+    <li><strong>Limpeza</strong>: remove duplicados e quase-duplicados, exemplos com rótulos contraditórios e dados pessoais. Verifica a distribuição das classes.</li>
+    <li><strong>Separação</strong>: treino, validação e teste sem sobreposição (nem quase-duplicados entre eles). O teste idealmente é revisto por uma pessoa.</li>
+  </ul>
+  <p><strong>Destilação</strong>: quando não há dados rotulados, um modelo grande gera e rotula exemplos e o pequeno aprende com eles. É o que fazemos no use case: o Claude gera reclamações variadas (canais, tons, erros de escrita, casos ambíguos) e a extração correta. O modelo pequeno fica com um teto próximo do professor, por isso a qualidade do professor e a diversidade dos exemplos contam muito.</p>
+  <div class="nota atencao"><strong>Termos de utilização</strong><p>Os fornecedores de modelos têm regras sobre usar as saídas dos seus modelos para treinar outros modelos, em particular modelos concorrentes. Lê os termos antes de destilar, e confirma também a licença do modelo aberto que vais afinar (Apache 2.0, licença Llama, etc.).</p></div>
+  <div class="codigo"><pre><code>{"prompt": [{"role": "system", "content": "Extrai os campos da reclamação em JSON."},
+            {"role": "user", "content": "Encomenda 48213 chegou com a taça partida!! Quero o dinheiro de volta"}],
+ "completion": [{"role": "assistant", "content": "{\"categoria\": \"produto_danificado\", \"urgencia\": \"media\", \"numero_encomenda\": \"48213\", \"produto\": \"taça\", \"pedido\": \"reembolso\"}"}]}</code></pre></div>
+
+  <h2 id="s4">SFT com TRL e Unsloth</h2>
+  <p>O <strong>SFT</strong> (supervised fine-tuning) é treino clássico de próximo token sobre os teus exemplos. A biblioteca <strong>TRL</strong> da Hugging Face trata do template, da máscara da perda e da integração com PEFT:</p>
+  <div class="codigo"><pre><code>import torch
+from datasets import load_dataset
+from peft import LoraConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from trl import SFTConfig, SFTTrainer
+
+BASE = "Qwen/Qwen2.5-1.5B-Instruct"
+bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                         bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+modelo = AutoModelForCausalLM.from_pretrained(BASE, quantization_config=bnb, device_map="auto")
+tok = AutoTokenizer.from_pretrained(BASE)
+
+dados = load_dataset("json", data_files={"train": "dados/treino.jsonl", "validation": "dados/validacao.jsonl"})
+lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, target_modules="all-linear", task_type="CAUSAL_LM")
+cfg = SFTConfig(output_dir="saidas/sft", num_train_epochs=2, learning_rate=2e-4,
+                per_device_train_batch_size=8, gradient_accumulation_steps=2,
+                max_length=1024, eval_strategy="steps", eval_steps=50, logging_steps=10,
+                bf16=True, gradient_checkpointing=True)
+SFTTrainer(model=modelo, args=cfg, train_dataset=dados["train"], eval_dataset=dados["validation"],
+           processing_class=tok, peft_config=lora).train()</code></pre></div>
+  <div class="tabela"><table>
+    <thead><tr><th>Hiperparâmetro</th><th>Ponto de partida com LoRA</th><th>Sinal de que está mal</th></tr></thead>
+    <tbody>
+      <tr><td>Learning rate</td><td>1e-4 a 2e-4 (muito maior do que no full fine-tuning)</td><td>Perda a oscilar ou a explodir: baixa. Perda quase parada: sobe</td></tr>
+      <tr><td>Épocas</td><td>1 a 3</td><td>Perda de validação a subir enquanto a de treino desce: overfitting</td></tr>
+      <tr><td>Rank r e alpha</td><td>r = 16, alpha = 2r</td><td>Tarefa complexa a ficar aquém: sobe r</td></tr>
+      <tr><td>Batch efetivo</td><td>16 a 64 (batch × acumulação de gradientes)</td><td>Perda muito ruidosa: aumenta a acumulação</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Unsloth</strong> é uma alternativa que reescreve partes do treino para ser cerca de duas vezes mais rápida e gastar menos memória, com a mesma interface do TRL. Útil no Colab gratuito. Para treinos maiores, há serviços geridos de fine-tuning de modelos abertos (Together, Fireworks, Hugging Face AutoTrain) e as APIs de fine-tuning dos fornecedores de modelos fechados.</p>
+
+  <h2 id="s5">Alinhamento: RLHF, DPO, ORPO e GRPO</h2>
+  <p>O SFT ensina a imitar exemplos. O alinhamento ensina a preferir umas respostas a outras, o que é mais fácil de rotular («A é melhor do que B») do que escrever a resposta perfeita.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Método</th><th>Como funciona</th><th>Quando usar</th></tr></thead>
+    <tbody>
+      <tr><td>RLHF (PPO)</td><td>Treina um modelo de recompensa com preferências humanas e otimiza o LLM com aprendizagem por reforço contra ele</td><td>O método original dos assistentes; complexo e instável para equipas pequenas</td></tr>
+      <tr><td>DPO</td><td>Otimiza diretamente com pares (prompt, escolhida, rejeitada): aumenta a probabilidade relativa da escolhida face a um modelo de referência</td><td>A escolha por omissão para preferências: simples, estável, uma GPU</td></tr>
+      <tr><td>ORPO</td><td>Junta SFT e preferências numa só fase, sem modelo de referência</td><td>Quando queres poupar uma fase de treino</td></tr>
+      <tr><td>GRPO</td><td>Gera um grupo de respostas por prompt, pontua-as com uma recompensa (muitas vezes verificável por código) e reforça as melhores do grupo</td><td>Tarefas com resposta verificável: matemática, código, JSON válido e correto. Foi o método do DeepSeek-R1</td></tr>
+    </tbody>
+  </table></div>
+  <p>No use case, depois do SFT, recolhemos os casos em que o modelo erra no conjunto de treino e construímos pares: a resposta correta como escolhida e a resposta errada do próprio modelo como rejeitada. O DPO com pares <em>on-policy</em> (gerados pelo modelo que estás a treinar) corrige exatamente os erros que o modelo comete.</p>
+  <div class="codigo"><pre><code>from trl import DPOConfig, DPOTrainer
+# cada exemplo: {"prompt": [...mensagens...], "chosen": [{"role": "assistant", ...}], "rejected": [{"role": "assistant", ...}]}
+cfg = DPOConfig(output_dir="saidas/dpo", beta=0.1, learning_rate=5e-6, num_train_epochs=1, bf16=True)
+DPOTrainer(model=modelo_sft, args=cfg, train_dataset=pares, processing_class=tok).train()</code></pre></div>
+  <p>Com GRPO, a recompensa é uma função Python. Para a nossa tarefa podia ser: 0 se o JSON é inválido, mais um ponto por cada campo certo. Não precisas de pares nem de rótulos de preferência, só de uma forma de verificar a resposta.</p>
+
+  <h2 id="s6">Avaliar antes e depois</h2>
+  <ol>
+    <li><strong>Linha de base</strong>: mede o modelo base com o melhor prompt que conseguires (few-shot incluído) e um modelo grande, no mesmo conjunto de teste. Sem isto não sabes se o treino ajudou.</li>
+    <li><strong>Métricas da tarefa</strong>: JSON válido, exatidão por campo, F1 macro da categoria (classes desequilibradas), mais latência e custo por pedido.</li>
+    <li><strong>Overfitting</strong>: acompanha a perda de validação; guarda o checkpoint com a melhor perda de validação ou a melhor métrica, não o último.</li>
+    <li><strong>Esquecimento catastrófico</strong>: o modelo afinado pode piorar no resto (conversa geral, outras línguas). Corre um pequeno conjunto de perguntas gerais antes e depois. Se o modelo só vai fazer esta tarefa, é aceitável; se não, mistura dados gerais no treino ou baixa o learning rate.</li>
+    <li><strong>Análise de erros</strong>: lê os erros. Muitas vezes estão no rótulo, não no modelo.</li>
+  </ol>
+
+  <h2 id="s7">Fundir, combinar e publicar</h2>
+  <ul>
+    <li><strong>Fundir o adaptador</strong>: <code>merge_and_unload()</code> soma <em>B·A</em> aos pesos e devolve um modelo normal, sem custo extra na inferência. Faz a fusão sobre o modelo base em bf16, não sobre a versão de 4 bits. É este modelo que vamos quantizar e servir no módulo 12.</li>
+    <li><strong>Servir adaptadores separados</strong>: o vLLM e outros servidores carregam vários LoRA sobre o mesmo modelo base e escolhem por pedido. Útil com muitas tarefas ou clientes.</li>
+    <li><strong>Model merging</strong>: combinar pesos de modelos afinados a partir do mesmo base (SLERP, TIES, DARE, com a ferramenta <code>mergekit</code>) junta capacidades sem treino adicional. Funciona surpreendentemente bem, mas avalia sempre o resultado.</li>
+    <li><strong>Publicar no Hugging Face Hub</strong>: <code>push_to_hub</code> do modelo ou só do adaptador, com um <em>model card</em> que diz o modelo base, os dados (e a sua origem), as métricas, as limitações e a licença. Respeita a licença do modelo base.</li>
+  </ul>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="2" data-explicacao="Conhecimento que muda e precisa de fontes resolve-se com RAG. O fine-tuning é bom para formato, estilo e tarefas estreitas.">
+    <p class="pergunta">O assistente interno tem de responder sobre a política de devoluções, que muda todos os trimestres. O que fazes?</p>
+    <div class="opcoes"><button>Fine-tuning com a política atual, repetido a cada trimestre</button><button>Full fine-tuning de um modelo grande</button><button>RAG sobre os documentos da política</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="No QLoRA o modelo base fica congelado e quantizado a 4 bits; só os adaptadores LoRA, pequenos, são treinados em maior precisão.">
+    <p class="pergunta">O que é treinado no QLoRA?</p>
+    <div class="opcoes"><button>Só as matrizes adaptadoras de baixa característica, sobre um modelo base congelado a 4 bits</button><button>Todos os pesos, guardados a 4 bits</button><button>Apenas a última camada do modelo</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="A perda de validação a subir enquanto a de treino desce é o sinal clássico de overfitting: o modelo está a memorizar o treino.">
+    <p class="pergunta">A perda de treino continua a descer, mas a de validação começou a subir na segunda época. O que se passa?</p>
+    <div class="opcoes"><button>O learning rate é demasiado baixo</button><button>Overfitting: guarda o checkpoint anterior ou treina menos</button><button>O conjunto de validação tem erros</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="O GRPO precisa só de uma função que pontue cada resposta. Para extração em JSON, validar o formato e comparar campos com a referência é uma recompensa verificável.">
+    <p class="pergunta">Que método de alinhamento aproveita uma recompensa calculada por código, como «JSON válido e campos corretos»?</p>
+    <div class="opcoes"><button>SFT</button><button>DPO</button><button>GRPO</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: a direção quer «um ChatGPT treinado com os nossos documentos». O que propões?</summary><p>Começar com RAG sobre os documentos (módulos 5 e 6): responde com fontes e atualiza-se quando os documentos mudam. Fine-tuning só depois, se houver um problema medido que o RAG não resolva, por exemplo o tom das respostas ou um formato interno, e com um conjunto de teste para provar a melhoria. Explicar que treinar com documentos não garante que o modelo os recorda com exatidão e torna difícil apagar informação desatualizada.</p></details>
+
+<script>
+(() => {
+  const M = [
+    ['Qwen2.5 0,5B', 0.49, 896, 24, 4864, 128], ['Qwen2.5 1,5B', 1.54, 1536, 28, 8960, 256], ['Qwen2.5 3B', 3.09, 2048, 36, 11008, 256],
+    ['Qwen2.5 7B', 7.62, 3584, 28, 18944, 512], ['Qwen2.5 14B', 14.7, 5120, 48, 13824, 1024], ['Qwen2.5 72B', 72.7, 8192, 80, 29568, 1024],
+  ];
+  const R = [4, 8, 16, 32, 64, 128, 256];
+  const $ = id => document.getElementById(id);
+  const sel = $('lora-m'), r = $('lora-r'), all = $('lora-all'), out = $('lora-out');
+  M.forEach((m, i) => { const o = document.createElement('option'); o.value = i; o.textContent = m[0]; sel.append(o); });
+  sel.value = 1;
+  const gb = x => x >= 100 ? Math.round(x) + ' GB' : x.toFixed(1).replace('.', ',') + ' GB';
+  const card = (t, v, sub, bg) => `<div style="background:${bg};border-radius:6px;padding:10px 12px"><div style="font:500 .75rem var(--f-mono);color:var(--muted)">${t}</div><div style="font:700 1.3rem var(--f-display);color:var(--fg)">${v}</div><div style="font-size:.8rem;color:var(--muted)">${sub}</div></div>`;
+  function render() {
+    const [nome, P, d, L, ff, kv] = M[+sel.value], rk = R[+r.value];
+    $('lora-r-v').textContent = rk;
+    const mods = all.checked ? [[d, d], [d, kv], [d, kv], [d, d], [d, ff], [d, ff], [ff, d]] : [[d, d], [d, kv]];
+    const lora = L * mods.reduce((s, [i, o]) => s + rk * (i + o), 0);
+    const pct = lora / (P * 1e9) * 100;
+    const ad = lora * 16 / 1e9;
+    const full = P * 16, l16 = P * 2 + ad, q4 = P * 0.55 + ad;
+    const bg = v => v <= 16 ? 'var(--ok-soft)' : v <= 80 ? 'var(--heat-soft)' : 'var(--bad-soft)';
+    out.innerHTML =
+      card('Parâmetros LoRA', (lora / 1e6).toFixed(1).replace('.', ',') + ' M', pct.toFixed(2).replace('.', ',') + ' % do modelo', 'var(--accent-soft)') +
+      card('Full fine-tuning', gb(full), 'pesos + gradientes + Adam', bg(full)) +
+      card('LoRA (base bf16)', gb(l16), 'adaptador: ' + Math.round(lora * 2 / 1e6) + ' MB em disco', bg(l16)) +
+      card('QLoRA (base 4 bits)', gb(q4), q4 <= 16 ? 'cabe numa T4 do Colab' : q4 <= 24 ? 'GPU de 24 GB' : q4 <= 80 ? 'GPU de 40 a 80 GB' : 'várias GPUs', bg(q4));
+  }
+  [sel, r, all].forEach(el => el.addEventListener('input', render));
+  all.addEventListener('change', render);
+  render();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Fine-tuning ajusta os pesos de um modelo a uma tarefa, formato ou estilo; não é a melhor forma de lhe dar conhecimento novo, que é trabalho para RAG. Com LoRA e QLoRA treinas só pequenas matrizes adaptadoras sobre um modelo congelado (e quantizado a 4 bits), o que cabe numa única GPU. A qualidade depende sobretudo dos dados: exemplos limpos, variados e no formato de chat do modelo, muitas vezes gerados por destilação de um modelo maior. Depois do SFT, o DPO alinha preferências com pares escolhido/rejeitado e o GRPO usa recompensas verificáveis. Avalia sempre num conjunto de teste separado, contra o modelo base e um modelo grande, e verifica que o modelo não esqueceu o resto.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="11">Marcar lição como concluída</button></p>
   </section>

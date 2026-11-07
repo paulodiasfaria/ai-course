@@ -37,7 +37,6 @@ rag = [
     "networkx",
     "ragas",
     "langchain-anthropic",
-    "langgraph-checkpoint-sqlite",
     "langfuse",
     "pytest",
 ]
@@ -56,10 +55,17 @@ finetuning = [
     "bitsandbytes",
     "accelerate",
 ]
+multimodal = [
+    "pillow",
+    "soundfile",
+    "accelerate",
+]
 deploy = [
     "fastapi",
     "uvicorn",
+    "httpx",
     "vllm; sys_platform == 'linux'",
+    "llmcompressor; sys_platform == 'linux'",
 ]
 
 [tool.uv]
