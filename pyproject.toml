@@ -1,0 +1,56 @@
+[project]
+name = "ai-course"
+version = "0.1.0"
+description = "Curso prático de GenAI: LLMs, RAG, agentes, fine-tuning e LLMOps"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "openai",
+    "litellm",
+    "pydantic",
+    "instructor",
+    "python-dotenv",
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "jupyterlab",
+    "ipywidgets",
+    "tiktoken",
+    "torch",
+    "transformers",
+    "gradio",
+]
+
+[project.optional-dependencies]
+rag = [
+    "sentence-transformers",
+    "faiss-cpu",
+    "qdrant-client",
+    "rank-bm25",
+    "docling",
+    "llama-index",
+    "langchain",
+    "ragas",
+    "langfuse",
+]
+agentes = [
+    "langgraph",
+    "pydantic-ai",
+    "mcp",
+    "playwright",
+]
+finetuning = [
+    "datasets",
+    "peft",
+    "trl",
+    "bitsandbytes",
+    "accelerate",
+]
+deploy = [
+    "fastapi",
+    "uvicorn",
+    "vllm; sys_platform == 'linux'",
+]
+
+[tool.uv]
+package = false
