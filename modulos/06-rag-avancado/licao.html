@@ -28,34 +28,188 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Hybrid search com Reciprocal Rank Fusion</a></li><li><a href="#s2">Reranking com cross-encoders e modelos de reranking via API</a></li><li><a href="#s3">Query rewriting, multi-query, HyDE e step-back prompting</a></li><li><a href="#s4">Contextual retrieval, parent-child chunks, late chunking e ColBERT</a></li><li><a href="#s5">GraphRAG e grafos de conhecimento</a></li><li><a href="#s6">RAG multimodal sobre páginas como imagem (ColPali)</a></li><li><a href="#s7">Agentic RAG: o modelo decide quando e o que pesquisar</a></li></ol>
+    <ol>
+      <li><a href="#s1">A arquitetura em dois andares</a></li>
+      <li><a href="#s2">Reranking com cross-encoders</a></li>
+      <li><a href="#s3">Transformar a pergunta</a></li>
+      <li><a href="#s4">Melhorar os chunks</a></li>
+      <li><a href="#s5">GraphRAG</a></li>
+      <li><a href="#s6">RAG multimodal</a></li>
+      <li><a href="#s7">Agentic RAG</a></li>
+      <li><a href="#s8">Escolher o que usar</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">A arquitetura em dois andares</h2>
+  <p>O RAG do módulo 5 faz uma pesquisa e envia os 4 primeiros resultados. Em produção, com milhares de documentos, isso não chega. A arquitetura habitual separa o problema em dois andares:</p>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  P[Pergunta] --> T["Transformar a pergunta<br/>(multi-query, HyDE)"]
+  T --> H["Pesquisa híbrida<br/>BM25 + vetorial, top 50-100"]
+  H --> R["Reranking<br/>cross-encoder, top 5"]
+  R --> E["Expandir contexto<br/>(parent, vizinhos, grafo)"]
+  E --> L[LLM com citações]
+    </pre>
+    <figcaption>Pesquisa larga e barata, depois seleção precisa e cara.</figcaption>
+  </figure>
+  <p>O primeiro andar tem de ter <strong>recall alto</strong>: o documento certo tem de estar algures nos 50 candidatos. O segundo tem de ter <strong>precisão alta</strong>: escolher os 5 melhores para o LLM.</p>
 
-  <h2 id="s1">Hybrid search com Reciprocal Rank Fusion</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Reranking com cross-encoders e modelos de reranking via API</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Query rewriting, multi-query, HyDE e step-back prompting</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Contextual retrieval, parent-child chunks, late chunking e ColBERT</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">GraphRAG e grafos de conhecimento</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s6">RAG multimodal sobre páginas como imagem (ColPali)</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s7">Agentic RAG: o modelo decide quando e o que pesquisar</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">Reranking com cross-encoders</h2>
+  <p>Os modelos de embeddings são <strong>bi-encoders</strong>: codificam a pergunta e o documento separadamente, e a comparação é um produto interno. É rápido porque os documentos são codificados uma vez, mas a pergunta e o documento nunca «se veem».</p>
+  <p>Um <strong>cross-encoder</strong> recebe o par (pergunta, documento) junto e a atenção cruza os dois textos. É muito mais preciso, mas tem de correr uma vez por par, por isso só se aplica aos candidatos do primeiro andar.</p>
+  <div class="tabela"><table>
+    <thead><tr><th></th><th>Bi-encoder (embeddings)</th><th>Cross-encoder (reranker)</th></tr></thead>
+    <tbody>
+      <tr><td>Entrada</td><td>Um texto de cada vez</td><td>Par pergunta + documento</td></tr>
+      <tr><td>Custo por pergunta</td><td>1 codificação + pesquisa</td><td>1 passagem por candidato</td></tr>
+      <tr><td>Precisão</td><td>Boa</td><td>Muito boa</td></tr>
+      <tr><td>Uso</td><td>Pesquisar milhões</td><td>Reordenar dezenas</td></tr>
+    </tbody>
+  </table></div>
+  <div class="codigo"><pre><code>from sentence_transformers import CrossEncoder
+
+reranker = CrossEncoder("BAAI/bge-reranker-v2-m3")     # multilingue
+candidatos = pesquisa_hibrida(pergunta, k=50)
+pontuacoes = reranker.predict([(pergunta, c.texto) for c in candidatos])
+top5 = [c for _, c in sorted(zip(pontuacoes, candidatos), key=lambda x: -x[0])][:5]</code></pre></div>
+  <p>Alternativas via API: Cohere Rerank, Voyage rerank, Jina. Também se pode usar um LLM como reranker (pedir para ordenar os candidatos), mais caro mas útil em domínios muito específicos.</p>
+
+  <h2 id="s3">Transformar a pergunta</h2>
+  <p>Os utilizadores perguntam com as suas palavras, e os documentos usam outras. «Posso ser despedido por faltar?» deve encontrar «faltas injustificadas» e «justa causa». Técnicas:</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Técnica</th><th>O que faz</th><th>Exemplo</th></tr></thead>
+    <tbody>
+      <tr><td>Query rewriting</td><td>O LLM reescreve a pergunta no vocabulário do domínio</td><td>«despedido por faltar» → «despedimento por justa causa por faltas injustificadas»</td></tr>
+      <tr><td>Multi-query</td><td>Gera 3 a 5 variantes, pesquisa todas e funde com RRF</td><td>Cobre sinónimos e ângulos diferentes</td></tr>
+      <tr><td>HyDE</td><td>O LLM escreve uma resposta hipotética e pesquisa-se com ela</td><td>Um parágrafo «tipo artigo de lei» fica mais perto do artigo real do que a pergunta</td></tr>
+      <tr><td>Decomposição</td><td>Parte uma pergunta complexa em subperguntas</td><td>«Diferença entre férias de quem trabalha há 1 ano e há 10» → duas pesquisas</td></tr>
+      <tr><td>Step-back</td><td>Pergunta mais geral para trazer o contexto de princípio</td><td>«Quantos dias tenho em 2026?» → «Regras de duração das férias»</td></tr>
+    </tbody>
+  </table></div>
+  <div class="nota atencao"><strong>Custo</strong><p>Cada técnica acrescenta uma chamada ao LLM antes da pesquisa (centenas de milissegundos). Usa um modelo pequeno e rápido para estas transformações.</p></div>
+
+  <h2 id="s4">Melhorar os chunks</h2>
+  <p><strong>Contextual retrieval</strong> (Anthropic, 2024): antes de indexar, pede-se a um LLM que escreva uma ou duas frases a situar cada chunk no documento («Este excerto é do artigo 238.º do Código do Trabalho, sobre a duração do período de férias...»). O texto é acrescentado ao chunk antes do embedding e do BM25. Com prompt caching do documento inteiro, o custo é baixo e é feito uma única vez.</p>
+  <p><strong>Parent-child</strong>: indexam-se chunks pequenos (precisos para a pesquisa) mas envia-se ao LLM o pai (a secção ou artigo completo), que tem o contexto todo.</p>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart TB
+  A["Artigo 238.º (pai, enviado ao LLM)"] --> B["n.º 1 (filho, indexado)"]
+  A --> C["n.º 2 (filho, indexado)"]
+  A --> D["n.º 3 (filho, indexado)"]
+  P[Pergunta] -.encontra.-> C
+  C -.devolve o pai.-> A
+    </pre>
+  </figure>
+  <p><strong>Late chunking</strong>: calcula os embeddings dos tokens com o documento inteiro como contexto e só depois agrupa por chunk, para que cada vetor «saiba» o que está à volta. <strong>ColBERT</strong> (late interaction) guarda um vetor por token e compara token a token; é muito preciso e está disponível em modelos como o BGE-M3 e em bibliotecas como RAGatouille.</p>
+
+  <h2 id="s5">GraphRAG</h2>
+  <p>Algumas perguntas não se respondem com um excerto: precisam de relações entre muitas partes. «Que artigos são afetados se mudar a definição de retribuição?» ou «Quais são os temas principais destes 500 relatórios?».</p>
+  <ul>
+    <li><strong>Grafo de conhecimento</strong>: um LLM extrai entidades e relações dos documentos (pessoa, empresa, artigo, «refere», «revoga») e guarda-as num grafo. A pesquisa segue as ligações a partir das entidades da pergunta.</li>
+    <li><strong>Microsoft GraphRAG</strong>: além do grafo, agrupa entidades em comunidades e gera resumos de cada uma. Responde bem a perguntas globais («temas principais»), mas a indexação é cara.</li>
+    <li><strong>Grafos estruturais baratos</strong>: muitas vezes a estrutura já existe. A legislação refere-se a si própria («nos termos do artigo 264.º»); extrair essas referências com uma expressão regular dá um grafo útil sem custos de LLM.</li>
+  </ul>
+  <div class="demo" id="grafo">
+    <p style="font-size:.9rem">Exemplo de expansão por referências: a pesquisa encontra um artigo e o grafo acrescenta os artigos citados. Clica num nó.</p>
+    <svg id="g-svg" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Grafo de referências entre artigos"></svg>
+    <p id="g-info" style="font-size:.9rem;color:var(--muted)"></p>
+  </div>
+
+  <h2 id="s6">RAG multimodal</h2>
+  <p>Relatórios com gráficos, apresentações e digitalizações perdem informação quando passam a texto. Duas abordagens:</p>
+  <ul>
+    <li><strong>Converter tudo para texto</strong> com um modelo de visão (descrever gráficos e tabelas) e seguir o pipeline normal.</li>
+    <li><strong>Pesquisar páginas como imagens</strong>: o <strong>ColPali</strong> codifica cada página com um modelo de visão e linguagem num conjunto de vetores, e a pergunta é comparada diretamente com a imagem. A página recuperada vai como imagem para um LLM multimodal. Evita o parsing por completo.</li>
+  </ul>
+
+  <h2 id="s7">Agentic RAG</h2>
+  <p>Em vez de um pipeline fixo, o LLM recebe a pesquisa como ferramenta e decide quando pesquisar, com que termos, se precisa de pesquisar outra vez e quando tem informação suficiente. Brilha em perguntas com vários passos, à custa de mais chamadas e latência menos previsível. Vamos construir agentes no módulo 8; o notebook deste módulo tem uma primeira versão.</p>
+  <div class="codigo"><pre><code>ferramentas = [{
+    "name": "pesquisar_legislacao",
+    "description": "Pesquisa artigos de legislação laboral e fiscal portuguesa. Usa termos jurídicos.",
+    "input_schema": {"type": "object", "properties": {"consulta": {"type": "string"}}, "required": ["consulta"]},
+}]
+# ciclo: o modelo pede pesquisas até decidir responder (módulo 8)</code></pre></div>
+
+  <h2 id="s8">Escolher o que usar</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Sintoma</th><th>Técnica a experimentar primeiro</th></tr></thead>
+    <tbody>
+      <tr><td>O documento certo está no top 50 mas não no top 5</td><td>Reranking</td></tr>
+      <tr><td>O documento certo nem está no top 50</td><td>Pesquisa híbrida, query rewriting, contextual retrieval</td></tr>
+      <tr><td>Nomes, códigos e números falham</td><td>BM25 na pesquisa híbrida</td></tr>
+      <tr><td>Chunk certo mas resposta incompleta</td><td>Parent-child ou expansão para vizinhos</td></tr>
+      <tr><td>Perguntas que cruzam vários documentos</td><td>Decomposição, grafo, agentic RAG</td></tr>
+      <tr><td>Gráficos e tabelas em imagem</td><td>RAG multimodal</td></tr>
+    </tbody>
+  </table></div>
+  <div class="nota"><strong>Ideia-chave</strong><p>Mede antes e depois de cada técnica (recall@5 da pesquisa e qualidade da resposta) e regista latência e custo. É frequente uma técnica sofisticada não compensar no teu caso.</p></div>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="1" data-explicacao="O cross-encoder é preciso mas lento: tem de processar cada par. Por isso só reordena os candidatos que a pesquisa barata já encontrou.">
+    <p class="pergunta">Porque não se usa um cross-encoder para pesquisar diretamente toda a base?</p>
+    <div class="opcoes"><button>Porque é menos preciso</button><button>Porque teria de correr uma vez por cada documento em cada pergunta</button><button>Porque não suporta português</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Se o documento certo está nos candidatos mas mal ordenado, o problema é de precisão no topo, que é exatamente o que o reranking resolve.">
+    <p class="pergunta">O artigo certo aparece em 18.º lugar em média. O que experimentas primeiro?</p>
+    <div class="opcoes"><button>Reranking dos top 50</button><button>Fine-tuning do LLM</button><button>Chunks maiores</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="O HyDE pesquisa com uma resposta hipotética, que está escrita no estilo e vocabulário dos documentos e por isso fica mais perto deles no espaço de embeddings.">
+    <p class="pergunta">O que faz o HyDE?</p>
+    <div class="opcoes"><button>Traduz a pergunta para inglês</button><button>Divide a pergunta em subperguntas</button><button>Gera uma resposta hipotética e usa-a como consulta</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="No parent-child pesquisa-se com chunks pequenos e precisos mas envia-se ao LLM o pai, com o contexto completo.">
+    <p class="pergunta">No parent-child, o que é indexado e o que é enviado ao LLM?</p>
+    <div class="opcoes"><button>Indexa-se o pai e envia-se o filho</button><button>Indexam-se os filhos e envia-se o pai</button><button>Indexam-se e enviam-se os dois</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: o contextual retrieval custa uma chamada ao LLM por chunk. Quanto custa indexar 10 000 chunks de documentos com 20 páginas?</summary><p>Cada chamada envia o documento inteiro (cerca de 10 000 tokens) e o chunk, e gera ~80 tokens. Sem cache, 10 000 × 10 000 = 100 M tokens de entrada. Com prompt caching do documento, a maioria das leituras custa ~10% do preço normal, o que reduz a conta em cerca de 90%. Com um modelo pequeno fica na ordem das dezenas de euros, pago uma vez.</p></details>
+
+<script>
+(() => {
+  const nos = [
+    { id: '351', x: 100, y: 120, t: 'Art. 351.º Justa causa de despedimento', hit: true },
+    { id: '256', x: 260, y: 50, t: 'Art. 256.º Efeitos de falta injustificada' },
+    { id: '328', x: 260, y: 190, t: 'Art. 328.º Sanções disciplinares' },
+    { id: '353', x: 430, y: 70, t: 'Art. 353.º Nota de culpa' },
+    { id: '357', x: 430, y: 180, t: 'Art. 357.º Decisão de despedimento' },
+  ];
+  const arestas = [['351', '256'], ['351', '328'], ['351', '353'], ['353', '357']];
+  const svg = document.getElementById('g-svg'), info = document.getElementById('g-info');
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) { if (k === 'fill' || k === 'stroke') e.style[k] = a[k]; else e.setAttribute(k, a[k]); } return e; };
+  let sel = '351';
+  function draw() {
+    svg.innerHTML = '';
+    const viz = new Set([sel, ...arestas.filter(a => a[0] === sel).map(a => a[1])]);
+    arestas.forEach(([a, b]) => {
+      const A = nos.find(n => n.id === a), B = nos.find(n => n.id === b);
+      svg.append(el('line', { x1: A.x, y1: A.y, x2: B.x, y2: B.y, stroke: a === sel ? 'var(--accent)' : 'var(--line)', 'stroke-width': a === sel ? 2.5 : 1.5 }));
+    });
+    nos.forEach(n => {
+      const g = el('g', { tabindex: 0, role: 'button', style: 'cursor:pointer' });
+      g.append(el('circle', { cx: n.x, cy: n.y, r: 26, fill: n.id === sel ? 'var(--accent)' : viz.has(n.id) ? 'var(--accent-soft)' : 'var(--surface)', stroke: 'var(--accent)', 'stroke-width': 1.5 }));
+      const tx = el('text', { x: n.x, y: n.y + 4, 'text-anchor': 'middle', 'font-size': 12, 'font-family': 'IBM Plex Mono, monospace', fill: n.id === sel ? 'var(--bg)' : 'var(--fg)' });
+      tx.textContent = n.id; g.append(tx);
+      const pick = () => { sel = n.id; draw(); };
+      g.addEventListener('click', pick); g.addEventListener('keydown', e => (e.key === 'Enter' || e.key === ' ') && pick());
+      svg.append(g);
+    });
+    const s = nos.find(n => n.id === sel), viz2 = [...viz].filter(v => v !== sel).map(v => nos.find(n => n.id === v).t);
+    info.textContent = `Pesquisa encontrou: ${s.t}. ` + (viz2.length ? `Expansão pelo grafo acrescenta: ${viz2.join('; ')}.` : 'Este artigo não refere outros.');
+  }
+  draw();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Um RAG de produção trabalha em dois andares: uma pesquisa larga e barata (híbrida, com 50 a 100 candidatos) seguida de reranking com um cross-encoder que escolhe os melhores. Reescrever a pergunta (multi-query, HyDE, decomposição) ajuda quando o utilizador não usa o vocabulário dos documentos. Do lado dos documentos, contextual retrieval e parent-child dão contexto aos chunks sem perder precisão. GraphRAG explora relações entre documentos, o RAG multimodal pesquisa páginas como imagens, e no agentic RAG o modelo decide o que pesquisar. Cada técnica custa latência e dinheiro, por isso só entra se melhorar as métricas.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="06">Marcar lição como concluída</button></p>
   </section>

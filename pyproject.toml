@@ -31,8 +31,14 @@ rag = [
     "docling",
     "llama-index",
     "langchain",
+    "llama-index-embeddings-huggingface",
+    "llama-index-llms-anthropic",
+    "pypdf",
+    "networkx",
     "ragas",
+    "langchain-anthropic",
     "langfuse",
+    "pytest",
 ]
 agentes = [
     "langgraph",
