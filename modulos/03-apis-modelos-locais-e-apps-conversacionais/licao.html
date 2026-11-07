@@ -29,6 +29,7 @@
   </section>
 
 <!--CORPO-->
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
     <ol>
@@ -66,7 +67,7 @@ print(r.usage.input_tokens, r.usage.output_tokens)</code></pre></div>
       <tr><td><code>model</code></td><td>Qual o modelo. Fixa a versão em produção para evitar mudanças silenciosas.</td></tr>
       <tr><td><code>max_tokens</code></td><td>Limite da resposta. Se for atingido, a resposta vem cortada (<code>stop_reason = "max_tokens"</code>).</td></tr>
       <tr><td><code>system</code></td><td>Instruções persistentes e personalidade.</td></tr>
-      <tr><td><code>temperature</code></td><td>Variedade da resposta (lição M01).</td></tr>
+      <tr><td><code>temperature</code></td><td>Variedade da resposta (lição M01). Atenção: os modelos Claude mais recentes já não aceitam este parâmetro (a API devolve erro) e usam uma amostragem fixa; continua a existir noutros fornecedores e nos modelos locais.</td></tr>
       <tr><td><code>stop_sequences</code></td><td>Texto que faz parar a geração.</td></tr>
     </tbody>
   </table></div>
