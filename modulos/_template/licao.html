@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Template de lição</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../../assets/licao.css">
+</head>
+<body>
+<div class="progresso"><span></span></div>
+<nav class="topo"><div class="in"><a href="../../index.html">← Currículo AI Course</a><span>M05 · RAG</span></div></nav>
+<main>
+  <header class="licao">
+    <p class="eyebrow">Módulo 05 · 8 h · complexidade 3/5</p>
+    <h1>Template de lição</h1>
+    <p class="lead">O pipeline clássico de Retrieval-Augmented Generation, construído do zero.</p>
+    <div class="nota atencao"><strong>Página de referência</strong><p>Mostra todos os componentes disponíveis: notas, diagramas, tabelas, código, demos, quizzes e exercícios com solução. Copia esta página para criar uma lição nova.</p></div>
+    <div class="meta"><span>Lição interativa</span><span><a href="pratica.ipynb">Notebook prático</a></span><span><a href="README.md">Use case</a></span></div>
+  </header>
+
+  <section class="caixa">
+    <p class="eyebrow">No fim desta lição vais saber</p>
+    <ul>
+      <li>Construir um pipeline RAG completo sem frameworks, para perceber cada peça</li>
+      <li>Escolher estratégias de chunking adequadas ao tipo de documento</li>
+      <li>Gerar respostas fundamentadas com citações das fontes</li>
+      <li>Reconstruir o mesmo pipeline com LlamaIndex ou LangChain e comparar</li>
+    </ul>
+  </section>
+
+  <nav class="caixa toc">
+    <p class="eyebrow">Nesta lição</p>
+    <ol><li><a href="#conceito">O conceito</a></li><li><a href="#diagrama">Como funciona</a></li><li><a href="#codigo">Em código</a></li><li><a href="#verificar">Verifica o que aprendeste</a></li></ol>
+  </nav>
+
+  <h2 id="conceito">O conceito</h2>
+  <p>Parágrafo explicativo. Usa frases curtas e um exemplo concreto antes da definição formal.</p>
+  <div class="nota"><strong>Ideia-chave</strong><p>Uma frase que resume o que o leitor tem de reter.</p></div>
+  <div class="nota atencao"><strong>Cuidado</strong><p>Um erro comum ou limitação a ter em conta.</p></div>
+
+  <h2 id="diagrama">Como funciona</h2>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  P[Pergunta] --> R[Recuperar documentos]
+  R --> C[Construir prompt]
+  C --> L[LLM]
+  L --> A[Resposta com citações]
+    </pre>
+    <figcaption>Legenda do diagrama. Os diagramas usam a sintaxe Mermaid.</figcaption>
+  </figure>
+
+  <div class="tabela"><table>
+    <thead><tr><th>Abordagem</th><th>Quando usar</th><th>Custo</th></tr></thead>
+    <tbody><tr><td>Prompting</td><td>Primeira tentativa, sempre</td><td>Baixo</td></tr><tr><td>RAG</td><td>Conhecimento externo ou que muda</td><td>Médio</td></tr><tr><td>Fine-tuning</td><td>Formato ou estilo muito específicos</td><td>Alto</td></tr></tbody>
+  </table></div>
+
+  <h2 id="codigo">Em código</h2>
+  <div class="codigo"><pre><code>from anthropic import Anthropic
+
+client = Anthropic()
+resposta = client.messages.create(
+    model="claude-sonnet-5-5",
+    max_tokens=500,
+    messages=[{"role": "user", "content": "Explica o que é um embedding numa frase."}],
+)
+print(resposta.content[0].text)</code></pre></div>
+
+  <div class="demo">
+    <label for="temp">Temperatura: <span id="temp-v">0.7</span></label>
+    <input type="range" id="temp" min="0" max="2" step="0.1" value="0.7">
+    <p id="temp-txt">Equilíbrio entre previsibilidade e variedade.</p>
+  </div>
+  <script>
+    (() => { const r = document.getElementById('temp'), v = document.getElementById('temp-v'), t = document.getElementById('temp-txt');
+      const f = x => x < 0.3 ? 'Quase determinístico: escolhe quase sempre o token mais provável.' : x < 1.1 ? 'Equilíbrio entre previsibilidade e variedade.' : 'Muito criativo e mais propenso a erros e incoerências.';
+      r.addEventListener('input', () => { v.textContent = r.value; t.textContent = f(+r.value); }); })();
+  </script>
+
+  <h2 id="verificar">Verifica o que aprendeste</h2>
+  <div class="quiz" data-certa="1" data-explicacao="O RAG vai buscar informação a fontes externas no momento da pergunta, por isso responde com dados atualizados sem retreinar o modelo.">
+    <p class="pergunta">Qual é a principal vantagem do RAG em relação ao fine-tuning para conhecimento que muda todas as semanas?</p>
+    <div class="opcoes"><button>O modelo fica mais pequeno</button><button>A informação é atualizada sem retreinar o modelo</button><button>Deixa de ser preciso um prompt</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: porque é que um chunk muito grande pode piorar as respostas?</summary><p>Porque dilui a informação relevante com texto irrelevante, baixa a precisão da pesquisa vetorial e ocupa contexto que podia ser usado por outros excertos.</p></details>
+
+
+  <section class="resumo">
+    <h3>Resumo</h3>
+    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
+    <p><button class="btn" type="button" data-marcar-lida="05">Marcar lição como concluída</button></p>
+  </section>
+
+  <nav class="navegacao">
+    <a href="../04-embeddings-e-pesquisa-semantica/licao.html"><span>Anterior</span>M04 · Embeddings e pesquisa semântica</a>
+    <a href="../06-rag-avancado/licao.html" style="text-align:right"><span>Seguinte</span>M06 · RAG avançado</a>
+  </nav>
+</main>
+<script src="../../assets/licao.js"></script>
+</body>
+</html>
