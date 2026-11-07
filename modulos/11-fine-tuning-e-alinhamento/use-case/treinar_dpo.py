@@ -41,10 +41,12 @@ if __name__ == "__main__":
     ap.add_argument("--sft", default=str(AQUI / "saidas/sft/final"))
     ap.add_argument("--n", type=int, default=800, help="exemplos de treino a usar para encontrar erros")
     ap.add_argument("--beta", type=float, default=0.1)
+    ap.add_argument("--lora16", action="store_true")
+    ap.add_argument("--base", default=BASE)
     ap.add_argument("--saida", default=str(AQUI / "saidas" / "dpo"))
     args = ap.parse_args()
 
-    modelo, tok = carregar(BASE, adaptador=args.sft, quatro_bits=True, treinavel=True)
+    modelo, tok = carregar(args.base, adaptador=args.sft, quatro_bits=not args.lora16, treinavel=True)
     modelo.eval()
     pares = pares_on_policy(modelo, tok, args.n)
     print(f"{len(pares)} pares a partir de {args.n} exemplos ({len(pares) / args.n:.0%} de erros no treino)")
@@ -54,9 +56,10 @@ if __name__ == "__main__":
     modelo.enable_input_require_grads()   # necessário com gradient checkpointing sobre um modelo de 4 bits
     tok.padding_side = "right"
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    fp16 = torch.cuda.is_available() and not bf16   # T4: fp16; CPU (só para testes): nenhum
     cfg = DPOConfig(output_dir=args.saida, beta=args.beta, learning_rate=5e-6, num_train_epochs=1,
                     per_device_train_batch_size=4, gradient_accumulation_steps=4, max_length=768,
-                    logging_steps=5, bf16=bf16, fp16=not bf16, gradient_checkpointing=True, report_to="none")
+                    logging_steps=5, bf16=bf16, fp16=fp16, gradient_checkpointing=True, report_to="none")
     trainer = DPOTrainer(model=modelo, ref_model=None, args=cfg, train_dataset=Dataset.from_list(pares), processing_class=tok)
     trainer.train()
     final = Path(args.saida) / "final"

@@ -40,7 +40,8 @@ def prompts_com_exemplos(textos: list[str], k: int) -> list[list[dict]]:
 def correr_local(caminho: str, prompts):
     from modelo_local import BASE, carregar, gerar
     adaptador = None if caminho == "base" else caminho
-    modelo, tok = carregar(BASE, adaptador=adaptador, quatro_bits=True)
+    import torch
+    modelo, tok = carregar(BASE, adaptador=adaptador, quatro_bits=torch.cuda.is_available())
     t0 = time.time()
     saidas = gerar(modelo, tok, prompts)
     seg = time.time() - t0

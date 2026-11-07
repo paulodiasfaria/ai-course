@@ -1,14 +1,18 @@
 """Carregar o modelo base (opcionalmente em 4 bits) e gerar respostas em lote."""
 from __future__ import annotations
 
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-BASE = "Qwen/Qwen2.5-1.5B-Instruct"
+BASE = os.getenv("MODELO_BASE", "Qwen/Qwen2.5-1.5B-Instruct")
 
 
 def dtype_gpu() -> torch.dtype:
-    # As T4 do Colab não suportam bf16: usamos fp16 nessas GPUs
+    # As T4 do Colab não suportam bf16: usamos fp16 nessas GPUs. Em CPU (só para testes), fp32.
+    if not torch.cuda.is_available():
+        return torch.float32
     return torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
 
 
