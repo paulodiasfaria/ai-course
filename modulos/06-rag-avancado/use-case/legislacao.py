@@ -172,7 +172,7 @@ class Assistente:
     def responder(self, pergunta: str, k: int = 5) -> dict:
         arts = self.recuperar(pergunta, k)
         ctx = "\n\n".join(f'<artigo diploma="{NOMES.get(a.diploma, a.diploma)}" numero="{a.numero}.º" titulo="{a.titulo}">\n{a.texto[:4000]}\n</artigo>' for a in arts)
-        r = self.llm.messages.create(model=MODELO, max_tokens=800, temperature=0, system=SYSTEM,
+        r = self.llm.messages.create(model=MODELO, max_tokens=800, system=SYSTEM,
                                      messages=[{"role": "user", "content": f"<legislacao>\n{ctx}\n</legislacao>\n\nPergunta: {pergunta}"}])
         return {"resposta": r.content[0].text, "artigos": [a.chave for a in arts]}
 

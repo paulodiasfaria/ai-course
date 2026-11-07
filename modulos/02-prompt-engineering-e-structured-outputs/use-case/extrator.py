@@ -56,7 +56,6 @@ def extrair(client, modelo, texto):
         f = client.messages.create(
             model=modelo,
             max_tokens=512,
-            temperature=0,
             system=SYSTEM,
             response_model=Fatura,
             max_retries=2,

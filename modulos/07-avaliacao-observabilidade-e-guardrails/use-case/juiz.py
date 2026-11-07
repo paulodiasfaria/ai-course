@@ -7,20 +7,20 @@ from __future__ import annotations
 
 import os
 
-import instructor
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 load_dotenv()
 MODELO_JUIZ = os.getenv("MODELO_JUIZ", "claude-sonnet-5-5")   # o juiz deve ser pelo menos tão forte como o sistema avaliado
-_client = instructor.from_anthropic(Anthropic())
+_client = Anthropic()
 
 
 def _pedir(modelo_resposta, prompt: str, max_tokens: int = 1500):
-    return _client.messages.create(model=MODELO_JUIZ, max_tokens=max_tokens, temperature=0,
-                                   response_model=modelo_resposta, max_retries=2,
-                                   messages=[{"role": "user", "content": prompt}])
+    # Structured outputs nativos (output_format): o Sonnet 5.5 não aceita tool_choice forçado, que o Instructor usa por omissão
+    r = _client.messages.parse(model=MODELO_JUIZ, max_tokens=max_tokens, output_format=modelo_resposta,
+                               messages=[{"role": "user", "content": prompt}])
+    return r.parsed_output
 
 
 # ---------- faithfulness ----------
