@@ -28,30 +28,207 @@
     </ul>
   </section>
 
+<!--CORPO-->
+<!--CORPO-->
+<!--CORPO-->
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Orquestrador-trabalhadores, supervisor, hierarquias e handoffs</a></li><li><a href="#s2">Deep research: planear, pesquisar em paralelo e sintetizar</a></li><li><a href="#s3">Estado partilhado, checkpoints e human-in-the-loop com LangGraph</a></li><li><a href="#s4">Avaliação de agentes: trajetórias, taxas de sucesso e benchmarks (SWE-bench, GAIA)</a></li><li><a href="#s5">Quando um só agente chega e quando vários compensam</a></li></ol>
+    <ol>
+      <li><a href="#s1">Porquê vários agentes</a></li>
+      <li><a href="#s2">Arquiteturas: orquestrador, supervisor, hierarquias e handoffs</a></li>
+      <li><a href="#s3">Deep research: planear, pesquisar em paralelo e sintetizar</a></li>
+      <li><a href="#s4">Estado, checkpoints e aprovação humana com LangGraph</a></li>
+      <li><a href="#s5">Avaliar agentes</a></li>
+      <li><a href="#s6">Quando um só agente chega</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Porquê vários agentes</h2>
+  <p>No módulo 8 construíste um agente: um LLM com ferramentas, em ciclo. Ele começa a falhar em tarefas longas por três razões. O <strong>contexto enche</strong>: cada resultado de ferramenta fica na conversa e, ao fim de dezenas de passos, o modelo perde o fio. As <strong>instruções competem</strong>: um único system prompt que explica pesquisa web, SQL, revisão e redação fica longo e ambíguo. E o trabalho é <strong>sequencial</strong>: cinco pesquisas independentes esperam umas pelas outras.</p>
+  <p>Um sistema multi-agente responde a isto dividindo o trabalho. Cada agente tem uma tarefa estreita, um prompt curto, só as ferramentas de que precisa e um contexto limpo. Um agente principal coordena e recebe só os resultados condensados.</p>
+  <div class="nota"><strong>A ideia central</strong><p>Um subagente funciona como compressão: lê 30 páginas e devolve 10 linhas com as fontes. O agente principal raciocina sobre resumos, não sobre o material bruto.</p></div>
 
-  <h2 id="s1">Orquestrador-trabalhadores, supervisor, hierarquias e handoffs</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Deep research: planear, pesquisar em paralelo e sintetizar</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Estado partilhado, checkpoints e human-in-the-loop com LangGraph</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Avaliação de agentes: trajetórias, taxas de sucesso e benchmarks (SWE-bench, GAIA)</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Quando um só agente chega e quando vários compensam</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">Arquiteturas: orquestrador, supervisor, hierarquias e handoffs</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Arquitetura</th><th>Como funciona</th><th>Bom para</th></tr></thead>
+    <tbody>
+      <tr><td>Orquestrador-trabalhadores</td><td>Um agente divide a tarefa, lança trabalhadores (muitas vezes em paralelo) e sintetiza os resultados</td><td>Pesquisa, análise de muitos documentos, revisão de código por ficheiro</td></tr>
+      <tr><td>Supervisor</td><td>Um agente escolhe, a cada passo, qual especialista age a seguir, até dar a tarefa por concluída</td><td>Fluxos em que a ordem depende do que acontece (apoio técnico, operações)</td></tr>
+      <tr><td>Hierarquia</td><td>Supervisores de supervisores: cada equipa tem o seu coordenador</td><td>Sistemas grandes com domínios distintos; raramente necessário</td></tr>
+      <tr><td>Handoffs</td><td>O agente ativo passa o controlo (e a conversa) a outro agente, que passa a falar com o utilizador</td><td>Assistentes com triagem: receção, faturação, devoluções</td></tr>
+      <tr><td>Avaliador-otimizador</td><td>Um agente produz, outro critica, o primeiro corrige</td><td>Textos, código ou relatórios com critérios de qualidade claros</td></tr>
+    </tbody>
+  </table></div>
+  <p>Na prática, implementas estas arquiteturas com o próprio ciclo de tool use (um subagente é uma ferramenta cuja implementação chama outro agente) ou com frameworks: <strong>LangGraph</strong> (grafos com estado, o que usamos aqui), <strong>OpenAI Agents SDK</strong> (handoffs nativos), <strong>CrewAI</strong> (equipas com papéis), <strong>Google ADK</strong>, <strong>Microsoft Agent Framework</strong> (sucessor do AutoGen) e o <strong>Claude Agent SDK</strong> (subagentes). Os conceitos são os mesmos; muda a ergonomia.</p>
+  <div class="codigo"><pre><code># Um subagente é só uma ferramenta que corre outro agente
+def pesquisar(pergunta: str) -> str:
+    """Investiga uma subpergunta e devolve um resumo com fontes."""
+    return agente(pergunta, ferramentas=[web_search], system=PROMPT_INVESTIGADOR)
+
+orquestrador = agente(pedido, ferramentas=[pesquisar, escrever_relatorio], system=PROMPT_ORQUESTRADOR)</code></pre></div>
+
+  <h2 id="s3">Deep research: planear, pesquisar em paralelo e sintetizar</h2>
+  <p>As funcionalidades de «deep research» dos assistentes comerciais seguem o mesmo esqueleto: planear subperguntas, investigá-las em paralelo, verificar e escrever um relatório com citações. É também o use case deste módulo, uma equipa de pesquisa de mercado para a Loja Lusa:</p>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  P[Planeador] -->|subperguntas| I1[Investigador web]
+  P --> I2[Investigador web]
+  P --> I3[Analista de dados internos]
+  I1 --> R[Revisor de fontes]
+  I2 --> R
+  I3 --> R
+  R -->|falta fonte| I1
+  R --> H{Aprovação humana}
+  H --> E[Redator]
+  E --> O[(Relatório com citações)]
+    </pre>
+    <figcaption>O revisor pode devolver tarefas aos investigadores. Uma pessoa valida os achados antes do relatório final.</figcaption>
+  </figure>
+  <ul>
+    <li><strong>Plano explícito e estruturado</strong>: o planeador devolve uma lista de tarefas com a fonte de cada uma (web ou dados internos), validada com Pydantic. Um plano em texto livre é difícil de distribuir.</li>
+    <li><strong>Instruções completas para cada trabalhador</strong>: o subagente não vê a conversa do orquestrador. Diz-lhe o objetivo, o formato de saída, as fontes aceitáveis e quando parar.</li>
+    <li><strong>Esforço proporcional</strong>: uma pergunta factual precisa de um investigador e duas pesquisas; uma análise de mercado, de quatro ou cinco. Diz ao planeador como escalar.</li>
+    <li><strong>Citações verificáveis</strong>: cada afirmação no relatório aponta para uma fonte que o revisor viu. É a mesma ideia de fidelidade do módulo 7.</li>
+  </ul>
+
+  <h3>Quanto custa e quão fiável é</h3>
+  <p>Mais agentes trazem paralelismo, mas também mais tokens e mais pontos de falha. Se cada passo de um agente tem uma probabilidade <em>p</em> de correr bem, uma tarefa com <em>n</em> passos sai certa com probabilidade <em>pⁿ</em>. Experimenta:</p>
+  <div class="demo" id="mac">
+    <label for="mac-a">Trabalhadores em paralelo: <output id="mac-a-v"></output></label>
+    <input type="range" id="mac-a" min="1" max="8" value="4">
+    <label for="mac-n">Passos por trabalhador: <output id="mac-n-v"></output></label>
+    <input type="range" id="mac-n" min="1" max="30" value="8">
+    <label for="mac-p">Probabilidade de sucesso por passo: <output id="mac-p-v"></output></label>
+    <input type="range" id="mac-p" min="90" max="99.9" step="0.1" value="98">
+    <label style="display:flex;gap:8px;align-items:center;font:0.92rem var(--f-sans);color:var(--fg)"><input type="checkbox" id="mac-r" checked style="accent-color:var(--accent)"> Revisor que deteta falhas e manda repetir uma vez</label>
+    <div id="mac-out" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px"></div>
+  </div>
+  <p>Repara em três coisas. A fiabilidade cai depressa com o número de passos, por isso tarefas curtas e bem delimitadas por trabalhador são melhores do que poucas tarefas longas. Um revisor que deteta falhas e repete recupera muita fiabilidade. E o paralelismo poupa tempo, não tokens: a Anthropic reportou que o seu sistema de pesquisa multi-agente gasta cerca de 15 vezes mais tokens do que uma conversa normal.</p>
+
+  <h2 id="s4">Estado, checkpoints e aprovação humana com LangGraph</h2>
+  <p>No <strong>LangGraph</strong> descreves o sistema como um grafo: os nós são funções (um agente, um passo de código), as arestas dizem o que vem a seguir e um <strong>estado</strong> tipado circula entre nós. Cada nó devolve só as chaves que quer alterar; um <em>reducer</em> diz como juntar atualizações (por exemplo, acrescentar a uma lista em vez de substituir).</p>
+  <div class="codigo"><pre><code>from typing import Annotated, TypedDict
+import operator
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import Send, interrupt, Command
+from langgraph.checkpoint.memory import InMemorySaver
+
+class Estado(TypedDict):
+    pergunta: str
+    tarefas: list[dict]
+    achados: Annotated[list[dict], operator.add]   # cada investigador acrescenta
+    decisao_humana: str
+    relatorio: str
+
+def planear(s):      return {"tarefas": planeador(s["pergunta"])}
+def investigar(t):   return {"achados": [investigador(t)]}        # recebe só a sua tarefa
+def aprovar(s):      return {"decisao_humana": interrupt({"achados": s["achados"]})}
+def escrever(s):     return {"relatorio": redator(s)}
+
+def distribuir(s):   # fan-out: um Send por tarefa, corre em paralelo
+    return [Send("investigar", t) for t in s["tarefas"]]
+
+g = StateGraph(Estado)
+for nome, f in [("planear", planear), ("investigar", investigar), ("aprovar", aprovar), ("escrever", escrever)]:
+    g.add_node(nome, f)
+g.add_edge(START, "planear")
+g.add_conditional_edges("planear", distribuir, ["investigar"])
+g.add_edge("investigar", "aprovar")
+g.add_edge("aprovar", "escrever")
+g.add_edge("escrever", END)
+app = g.compile(checkpointer=InMemorySaver())
+
+cfg = {"configurable": {"thread_id": "coimbra-2026"}}
+app.invoke({"pergunta": "Abrir loja em Coimbra?"}, cfg)   # para em interrupt()
+app.invoke(Command(resume="ok, mas ignora a fonte 3"), cfg)   # retoma do checkpoint</code></pre></div>
+  <ul>
+    <li><strong>Checkpoints</strong>: com um <em>checkpointer</em> (memória, SQLite, Postgres), o estado é gravado depois de cada passo, identificado por <code>thread_id</code>. Se o processo cair a meio, retomas do último passo concluído em vez de pagar tudo outra vez. Também podes ver o histórico (<code>get_state_history</code>) e criar um ramo a partir de um passo anterior (<code>update_state</code>) para experimentar outro caminho sem repetir o que já foi feito.</li>
+    <li><strong>Human-in-the-loop</strong>: <code>interrupt()</code> para a execução, grava o estado e devolve ao chamador o que queres mostrar. A pessoa pode demorar horas; retomas com <code>Command(resume=...)</code> e o valor passa a ser o retorno de <code>interrupt()</code>.</li>
+    <li><strong>Limites</strong>: o LangGraph tem um <code>recursion_limit</code> (número máximo de passos do grafo). Junta-lhe um orçamento de tokens no estado e um número máximo de rondas de revisão.</li>
+  </ul>
+  <div class="nota atencao"><strong>Onde pôr a pessoa</strong><p>Pausa antes de ações irreversíveis ou caras (enviar, publicar, pagar, lançar 20 pesquisas) e nos pontos em que um erro se propaga (validar o plano ou os achados antes do relatório). Pedir aprovação em todos os passos ensina a pessoa a clicar «sim» sem ler.</p></div>
+
+  <h2 id="s5">Avaliar agentes</h2>
+  <p>Um agente pode chegar à resposta certa por um caminho errado (por sorte, ou ignorando uma fonte obrigatória) ou falhar a resposta com um caminho quase perfeito. Por isso avalia-se em duas camadas:</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Camada</th><th>O que verificas</th><th>Como</th></tr></thead>
+    <tbody>
+      <tr><td>Resultado</td><td>A resposta final está correta e completa? As citações suportam as afirmações?</td><td>Comparação com resposta de referência, testes, LLM como juiz com rubrica (módulo 7)</td></tr>
+      <tr><td>Trajetória</td><td>Chamou as ferramentas certas? Respeitou as regras (usar dados internos, pedir aprovação)? Quantos passos e tokens gastou?</td><td>Verificações determinísticas sobre o registo da execução</td></tr>
+    </tbody>
+  </table></div>
+  <p>Os agentes são estocásticos: a mesma tarefa pode correr bem numa execução e mal na seguinte. Repete cada tarefa várias vezes e distingue duas métricas: <strong>pass@k</strong> (acertou pelo menos uma vez em <em>k</em>, útil quando uma pessoa escolhe a melhor tentativa) e <strong>pass^k</strong> (acertou todas as <em>k</em> vezes, o que importa em produção). Um agente com 60 % de sucesso por tentativa tem pass@3 de 94 % mas pass^3 de apenas 22 %.</p>
+  <p>Benchmarks públicos que vais ver citados: <strong>SWE-bench Verified</strong> (resolver issues reais de repositórios Python, verificado por testes), <strong>GAIA</strong> (perguntas de assistente geral que exigem pesquisa, ficheiros e raciocínio em vários passos), <strong>τ-bench</strong> (agentes de apoio ao cliente com políticas e utilizadores simulados, onde surgiu o pass^k), <strong>OSWorld</strong> (usar um computador) e <strong>BrowseComp</strong> (encontrar informação difícil na web). Servem para comparar modelos; para o teu sistema, precisas do teu próprio conjunto de tarefas.</p>
+
+  <h2 id="s6">Quando um só agente chega</h2>
+  <p>A regra prática: começa com um só agente bem desenhado e só divide quando medires um problema que a divisão resolve.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Sinal</th><th>Um agente</th><th>Vários agentes</th></tr></thead>
+    <tbody>
+      <tr><td>Estrutura da tarefa</td><td>Passos dependentes uns dos outros</td><td>Partes independentes que podem correr em paralelo</td></tr>
+      <tr><td>Contexto</td><td>Cabe confortavelmente numa conversa</td><td>Cada parte lê muito material que as outras não precisam</td></tr>
+      <tr><td>Ferramentas e instruções</td><td>Poucas e coerentes</td><td>Muitas, de domínios distintos, que confundem o modelo</td></tr>
+      <tr><td>Valor da tarefa</td><td>Baixo ou com orçamento apertado</td><td>Alto o suficiente para pagar 5 a 15 vezes mais tokens</td></tr>
+      <tr><td>Partilha de contexto</td><td>Todas as decisões precisam de tudo o que já se sabe (por exemplo, escrever código coerente)</td><td>Cada parte decide sozinha com instruções claras</td></tr>
+    </tbody>
+  </table></div>
+  <p>Programação é um bom contra-exemplo: as decisões num ficheiro dependem das decisões noutros, e agentes paralelos a escrever código produzem peças que não encaixam. Pesquisa é o caso favorável: cinco subperguntas sobre um mercado investigam-se de forma independente.</p>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="2" data-explicacao="As subperguntas são independentes e cada uma lê muito material, por isso dividir em trabalhadores paralelos com contextos próprios compensa.">
+    <p class="pergunta">Em qual destas tarefas um sistema multi-agente tem mais probabilidade de compensar?</p>
+    <div class="opcoes"><button>Classificar emails em cinco categorias</button><button>Refatorar uma função com testes</button><button>Analisar um mercado a partir de cinco subperguntas independentes com muitas fontes</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="O subagente começa com um contexto limpo e não vê a conversa do orquestrador; tudo o que precisa de saber tem de ir na instrução.">
+    <p class="pergunta">Porque é que as instruções do orquestrador para cada trabalhador têm de ser completas?</p>
+    <div class="opcoes"><button>Porque o trabalhador não vê a conversa do orquestrador</button><button>Porque os trabalhadores usam sempre um modelo mais pequeno</button><button>Porque o LangGraph limita o tamanho do estado</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="Com um checkpointer, o estado é gravado depois de cada passo; interrupt() para a execução e Command(resume=...) retoma-a, mesmo horas depois.">
+    <p class="pergunta">O que permite a um grafo LangGraph esperar horas pela aprovação de uma pessoa e continuar onde parou?</p>
+    <div class="opcoes"><button>Um ciclo while com time.sleep</button><button>Um checkpointer com interrupt() e Command(resume=...)</button><button>Guardar a conversa num ficheiro de texto</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="pass^k exige sucesso em todas as k tentativas: 0,6 elevado a 3 dá cerca de 22 %. É a métrica que reflete a experiência de quem usa o sistema todos os dias.">
+    <p class="pergunta">Um agente acerta 60 % das vezes. Qual é a probabilidade de acertar três execuções seguidas (pass^3)?</p>
+    <div class="opcoes"><button>Cerca de 94 %</button><button>Cerca de 22 %</button><button>60 %</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: desenha um sistema multi-agente para rever contratos de fornecedores.</summary><p>Uma proposta: um orquestrador recebe o contrato e lança trabalhadores em paralelo, um por tema (prazos e renovação, penalizações, proteção de dados, foro e lei aplicável), cada um com as cláusulas relevantes e uma checklist da política da empresa. Um revisor confirma que cada problema apontado cita a cláusula exata. Uma pessoa do jurídico aprova antes de o relatório ser enviado ao fornecedor. Avaliação: um conjunto de contratos com problemas conhecidos, medindo quantos são encontrados (recall), quantos alertas são falsos e o pass^3.</p></details>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const a = $('mac-a'), n = $('mac-n'), p = $('mac-p'), r = $('mac-r'), out = $('mac-out');
+  const pct = x => (x * 100).toFixed(x > 0.995 || x < 0.005 ? 1 : 0) + ' %';
+  function card(t, v, sub, bg) {
+    return `<div style="background:${bg};border-radius:6px;padding:10px 12px"><div style="font:500 .75rem var(--f-mono);color:var(--muted)">${t}</div><div style="font:700 1.4rem var(--f-display);color:var(--fg)">${v}</div><div style="font-size:.8rem;color:var(--muted)">${sub}</div></div>`;
+  }
+  function render() {
+    const A = +a.value, N = +n.value, P = +p.value / 100;
+    $('mac-a-v').textContent = A; $('mac-n-v').textContent = N; $('mac-p-v').textContent = P.toLocaleString('pt-PT', { style: 'percent', minimumFractionDigits: 1 });
+    const q = Math.pow(P, N);
+    const qr = r.checked ? 1 - Math.pow(1 - q, 2) : q;
+    const total = Math.pow(qr, A);
+    const tentativas = r.checked ? (1 + (1 - q)) : 1;
+    const tokens = Math.round(A * N * 4 * tentativas + 12 + (r.checked ? 6 : 0));
+    const seq = A * N * tentativas, par = N * (r.checked ? 2 - q : 1) + 3;
+    const bg = total > 0.9 ? 'var(--ok-soft)' : total > 0.6 ? 'var(--heat-soft)' : 'var(--bad-soft)';
+    out.innerHTML =
+      card('Cada trabalhador acerta', pct(qr), r.checked ? `sem revisor: ${pct(q)}` : `${N} passos a ${pct(P)}`, 'var(--accent-soft)') +
+      card('Todos acertam', pct(total), `${A} trabalhador${A > 1 ? 'es' : ''}`, bg) +
+      card('Tokens (milhares)', '≈ ' + tokens, '4k por passo + coordenação', 'var(--surface)') +
+      card('Tempo em passos', `${par.toFixed(0)} vs ${seq.toFixed(0)}`, 'em paralelo vs em sequência', 'var(--accent-soft)');
+  }
+  [a, n, p, r].forEach(el => el.addEventListener('input', render));
+  r.addEventListener('change', render);
+  render();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Um sistema multi-agente divide uma tarefa longa entre agentes especializados, coordenados por um orquestrador, um supervisor ou passagens de controlo (handoffs). Compensa quando a tarefa se divide em partes independentes que podem correr em paralelo, cada uma com o seu contexto, como na pesquisa aprofundada; o preço é muito mais tokens, mais latência de coordenação e falhas que se acumulam. O LangGraph modela o sistema como um grafo com estado partilhado, checkpoints que permitem retomar e pausas para aprovação humana. Avalia-se pelo resultado e pela trajetória, repetindo cada tarefa várias vezes, porque um agente que acerta uma vez em três não está pronto para produção.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="10">Marcar lição como concluída</button></p>
   </section>

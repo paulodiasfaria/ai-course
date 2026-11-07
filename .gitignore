@@ -6,3 +6,9 @@ __pycache__/
 data/raw/
 models/
 .DS_Store
+# Ficheiros gerados pelos use cases
+*.db
+envios_pendentes.jsonl
+modulos/*/use-case/dados/
+modulos/*/use-case/relatorios/
+modulos/*/use-case/docs_partilhados/

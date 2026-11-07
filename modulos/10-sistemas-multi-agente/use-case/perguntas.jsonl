@@ -1,0 +1,4 @@
+{"id": "coimbra", "pergunta": "Vale a pena a Loja Lusa abrir uma loja física em Coimbra em 2026?", "exige": ["web", "interno"], "max_usd": 0.60}
+{"id": "cozinha", "pergunta": "A categoria Cozinha está a crescer mais na Loja Lusa do que no mercado português de artigos para a casa?", "exige": ["web", "interno"], "max_usd": 0.50}
+{"id": "online", "pergunta": "Que peso têm as vendas online no total da Loja Lusa e como compara com a média do retalho em Portugal?", "exige": ["web", "interno"], "max_usd": 0.50}
+{"id": "factual", "pergunta": "Qual foi a loja da Loja Lusa com mais vendas em 2025?", "exige": ["interno"], "max_tarefas": 3, "max_usd": 0.15}
