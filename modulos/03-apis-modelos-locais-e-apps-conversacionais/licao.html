@@ -28,30 +28,203 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Chat completions, mensagens de sistema e streaming</a></li><li><a href="#s2">Modelos locais com Ollama e llama.cpp; inferência com Hugging Face transformers</a></li><li><a href="#s3">Abstração de fornecedores com LiteLLM</a></li><li><a href="#s4">Memória: janela deslizante, resumo e memória persistente</a></li><li><a href="#s5">Interfaces com Gradio, Streamlit e Chainlit</a></li></ol>
+    <ol>
+      <li><a href="#s1">Como funciona uma API de chat</a></li>
+      <li><a href="#s2">Streaming, erros e novas tentativas</a></li>
+      <li><a href="#s3">Modelos locais: Ollama, llama.cpp e transformers</a></li>
+      <li><a href="#s4">Uma interface para todos os fornecedores: LiteLLM</a></li>
+      <li><a href="#s5">Memória de conversa</a></li>
+      <li><a href="#s6">Interfaces com Gradio, Streamlit e Chainlit</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">Como funciona uma API de chat</h2>
+  <p>Todas as APIs de chat seguem o mesmo modelo: envias a conversa inteira como uma lista de mensagens com papéis (<code>system</code>, <code>user</code>, <code>assistant</code>) e recebes a mensagem seguinte do assistente. <strong>O servidor não guarda estado entre pedidos.</strong> Para continuar uma conversa, voltas a enviar todo o histórico.</p>
+  <div class="codigo"><pre><code>from anthropic import Anthropic
 
-  <h2 id="s1">Chat completions, mensagens de sistema e streaming</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Modelos locais com Ollama e llama.cpp; inferência com Hugging Face transformers</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Abstração de fornecedores com LiteLLM</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Memória: janela deslizante, resumo e memória persistente</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Interfaces com Gradio, Streamlit e Chainlit</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+client = Anthropic()                 # lê ANTHROPIC_API_KEY do ambiente
+historico = [
+    {"role": "user", "content": "Olá! Fazem entregas nos Açores?"},
+    {"role": "assistant", "content": "Sim, entregamos em todas as ilhas, em 3 a 5 dias úteis."},
+    {"role": "user", "content": "E quanto custa?"},     # só faz sentido com o contexto anterior
+]
+r = client.messages.create(
+    model="claude-haiku-5-5",
+    max_tokens=300,
+    system="És o assistente da Loja Lusa. Responde em português de Portugal.",
+    messages=historico,
+)
+print(r.content[0].text)
+print(r.usage.input_tokens, r.usage.output_tokens)</code></pre></div>
+  <div class="tabela"><table>
+    <thead><tr><th>Parâmetro</th><th>Para que serve</th></tr></thead>
+    <tbody>
+      <tr><td><code>model</code></td><td>Qual o modelo. Fixa a versão em produção para evitar mudanças silenciosas.</td></tr>
+      <tr><td><code>max_tokens</code></td><td>Limite da resposta. Se for atingido, a resposta vem cortada (<code>stop_reason = "max_tokens"</code>).</td></tr>
+      <tr><td><code>system</code></td><td>Instruções persistentes e personalidade.</td></tr>
+      <tr><td><code>temperature</code></td><td>Variedade da resposta (lição M01).</td></tr>
+      <tr><td><code>stop_sequences</code></td><td>Texto que faz parar a geração.</td></tr>
+    </tbody>
+  </table></div>
+  <p>A OpenAI usa o mesmo conceito com nomes ligeiramente diferentes (<code>client.chat.completions.create</code>, a mensagem de sistema vai dentro da lista). Muitos servidores locais e fornecedores de modelos abertos implementam a API da OpenAI, por isso o mesmo SDK serve para falar com eles mudando só o <code>base_url</code>.</p>
+
+  <h2 id="s2">Streaming, erros e novas tentativas</h2>
+  <p>Uma resposta de 500 tokens pode demorar 5 a 15 segundos. Com <strong>streaming</strong>, o texto aparece à medida que é gerado e o utilizador vê o primeiro token em menos de um segundo. A métrica que interessa à experiência é o <strong>time to first token (TTFT)</strong>.</p>
+  <div class="codigo"><pre><code>with client.messages.stream(model="claude-haiku-5-5", max_tokens=500,
+                            messages=historico) as stream:
+    for pedaco in stream.text_stream:
+        print(pedaco, end="", flush=True)</code></pre></div>
+  <p>Em produção, as chamadas falham. Prepara-te para:</p>
+  <ul>
+    <li><strong>429 (rate limit)</strong>: excedeste pedidos ou tokens por minuto. Espera e tenta de novo.</li>
+    <li><strong>500, 529 (sobrecarga)</strong>: problema do lado do fornecedor. Tenta de novo com espera crescente.</li>
+    <li><strong>400</strong>: o pedido está errado (por exemplo, contexto acima do limite). Não adianta repetir.</li>
+    <li><strong>Timeouts</strong>: define-os explicitamente.</li>
+  </ul>
+  <p>Os SDKs oficiais já fazem algumas tentativas com <strong>backoff exponencial</strong> (<code>max_retries</code>). Para lógica própria, a biblioteca <code>tenacity</code> é a escolha habitual. Em sistemas críticos, configura um fornecedor alternativo para quando o principal está em baixo.</p>
+
+  <h2 id="s3">Modelos locais: Ollama, llama.cpp e transformers</h2>
+  <p>Correr um modelo na tua máquina dá privacidade total (os dados nunca saem), custo marginal zero e funcionamento sem internet. Em troca, a qualidade é menor que a dos melhores modelos fechados e precisas de hardware adequado.</p>
+  <div class="tabela"><table>
+    <thead><tr><th>Ferramenta</th><th>Para quê</th><th>Como começar</th></tr></thead>
+    <tbody>
+      <tr><td>Ollama</td><td>A forma mais simples de correr modelos quantizados em Mac, Linux e Windows. Expõe uma API compatível com a da OpenAI.</td><td><code>ollama run qwen2.5:7b</code></td></tr>
+      <tr><td>llama.cpp</td><td>O motor por trás do Ollama. Máximo controlo, formato GGUF, corre em CPU.</td><td><code>llama-server -m modelo.gguf</code></td></tr>
+      <tr><td>LM Studio</td><td>Interface gráfica para descarregar e testar modelos.</td><td>Aplicação de desktop</td></tr>
+      <tr><td>transformers</td><td>Acesso total ao modelo em PyTorch: logits, atenção, fine-tuning.</td><td><code>pipeline("text-generation", ...)</code></td></tr>
+      <tr><td>vLLM</td><td>Servir modelos em GPU com muito débito (módulo 12).</td><td><code>vllm serve Qwen/Qwen2.5-7B-Instruct</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Regra prática para memória: um modelo quantizado a 4 bits precisa de cerca de 0,6 GB por mil milhões de parâmetros, mais o KV cache. Um modelo de 7-8B corre bem num portátil com 16 GB; um de 70B precisa de 48 GB ou mais.</p>
+  <div class="demo" id="mem">
+    <label for="mem-p">Parâmetros (mil milhões): <span id="mem-pv">8</span></label>
+    <input type="range" id="mem-p" min="0.5" max="72" step="0.5" value="8">
+    <label for="mem-b">Precisão</label>
+    <select id="mem-b" style="font:inherit;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+      <option value="16">FP16 / BF16 (16 bits)</option>
+      <option value="8">INT8 (8 bits)</option>
+      <option value="4.5" selected>Q4_K_M (≈4,5 bits)</option>
+    </select>
+    <p id="mem-out" style="font-family:var(--f-mono)"></p>
+  </div>
+
+  <h2 id="s4">Uma interface para todos os fornecedores: LiteLLM</h2>
+  <p>Cada fornecedor tem o seu SDK. O <strong>LiteLLM</strong> traduz uma única chamada no formato da OpenAI para mais de cem fornecedores, incluindo Ollama. Mudar de modelo passa a ser mudar uma string, o que facilita comparar qualidade e custo e ter alternativas.</p>
+  <div class="codigo"><pre><code>from litellm import completion
+
+for modelo in ["anthropic/claude-haiku-5-5", "openai/gpt-4.1-mini", "ollama/qwen2.5:7b"]:
+    r = completion(model=modelo, messages=[{"role": "user", "content": "Capital dos Açores?"}])
+    print(modelo, "→", r.choices[0].message.content, r.usage.total_tokens)</code></pre></div>
+  <div class="nota"><strong>Na prática</strong><p>O LiteLLM também tem um modo proxy (um servidor) que centraliza chaves, limites de gasto por equipa e registo de pedidos. Voltamos a ele no módulo 12.</p></div>
+
+  <h2 id="s5">Memória de conversa</h2>
+  <p>Como o servidor não guarda estado, a «memória» é a tua aplicação a decidir que mensagens enviar. O histórico cresce a cada volta e, com ele, o custo e a latência. Estratégias principais:</p>
+  <ul>
+    <li><strong>Histórico completo</strong>: simples, mas o custo cresce com o quadrado do número de voltas (cada volta reenvia todas as anteriores).</li>
+    <li><strong>Janela deslizante</strong>: mantém só as últimas N mensagens ou os últimos N tokens. Barato, mas esquece o início.</li>
+    <li><strong>Resumo</strong>: quando o histórico passa de um limite, pede ao modelo um resumo das mensagens antigas e substitui-as por ele.</li>
+    <li><strong>Memória persistente</strong>: extrai factos importantes (nome, preferências, encomendas) para uma base de dados e injeta-os no system prompt em conversas futuras.</li>
+  </ul>
+  <p>Simula uma conversa de 20 voltas e compara o que cada estratégia envia na última chamada:</p>
+  <div class="demo" id="memo">
+    <label for="memo-n">Voltas de conversa: <span id="memo-nv">12</span></label>
+    <input type="range" id="memo-n" min="1" max="20" value="12">
+    <label for="memo-e">Estratégia</label>
+    <select id="memo-e" style="font:inherit;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+      <option value="full">Histórico completo</option>
+      <option value="window">Janela deslizante (últimas 6 mensagens)</option>
+      <option value="summary">Resumo + últimas 4 mensagens</option>
+    </select>
+    <div id="memo-viz" style="display:flex;flex-wrap:wrap;gap:3px"></div>
+    <p id="memo-out" style="font-size:.9rem;color:var(--muted)"></p>
+  </div>
+
+  <h2 id="s6">Interfaces com Gradio, Streamlit e Chainlit</h2>
+  <p>Para demos, protótipos internos e portfólio, não precisas de escrever frontend:</p>
+  <div class="codigo"><pre><code>import gradio as gr
+from litellm import completion
+
+def responder(mensagem, historico):
+    msgs = historico + [{"role": "user", "content": mensagem}]
+    texto = ""
+    for pedaco in completion(model="anthropic/claude-haiku-5-5", messages=msgs, stream=True):
+        texto += pedaco.choices[0].delta.content or ""
+        yield texto                                  # streaming na interface
+
+gr.ChatInterface(responder, type="messages", title="Loja Lusa").launch()</code></pre></div>
+  <div class="tabela"><table>
+    <thead><tr><th>Ferramenta</th><th>Melhor para</th></tr></thead>
+    <tbody>
+      <tr><td>Gradio</td><td>Demos rápidas de modelos e chat; publicação gratuita em Hugging Face Spaces.</td></tr>
+      <tr><td>Streamlit</td><td>Apps de dados com gráficos, tabelas e chat lado a lado.</td></tr>
+      <tr><td>Chainlit</td><td>Interfaces de chat mais completas, com passos intermédios de agentes visíveis.</td></tr>
+    </tbody>
+  </table></div>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="0" data-explicacao="As APIs são stateless. A aplicação guarda o histórico e reenvia-o em cada pedido.">
+    <p class="pergunta">Como é que o modelo «se lembra» do que o utilizador disse três mensagens antes?</p>
+    <div class="opcoes"><button>A aplicação reenvia o histórico da conversa em cada pedido</button><button>O servidor guarda a sessão durante 24 horas</button><button>O modelo atualiza os pesos durante a conversa</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="Um 429 é temporário. Esperar com backoff exponencial e tentar de novo resolve, sem sobrecarregar ainda mais o serviço.">
+    <p class="pergunta">A API devolve 429. O que deves fazer?</p>
+    <div class="opcoes"><button>Corrigir o prompt, que tem um erro</button><button>Repetir imediatamente em ciclo até funcionar</button><button>Esperar com backoff exponencial e tentar de novo</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="Com 4,5 bits por parâmetro, 8 mil milhões ocupam cerca de 4,5 GB, mais o KV cache e o sistema. Cabe com folga em 16 GB.">
+    <p class="pergunta">Um portátil com 16 GB de RAM consegue correr um modelo de 8B quantizado em Q4?</p>
+    <div class="opcoes"><button>Não, precisa de pelo menos 32 GB</button><button>Sim, ocupa cerca de 5 GB</button><button>Só com uma GPU dedicada</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="O resumo preserva a informação importante do início em poucos tokens, enquanto a janela deslizante simplesmente a esquece.">
+    <p class="pergunta">Numa conversa longa de apoio, o cliente disse o número da encomenda logo no início. Que estratégia de memória evita perdê-lo sem enviar o histórico todo?</p>
+    <div class="opcoes"><button>Janela deslizante das últimas 4 mensagens</button><button>Resumo das mensagens antigas (ou extração do facto para memória persistente)</button><button>Aumentar a temperatura</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: quanto custa uma conversa de 20 voltas com histórico completo, se cada mensagem tiver 100 tokens?</summary><p>Na volta k enviamos cerca de 2k−1 mensagens (todas as anteriores mais a nova). A soma de 1 a 20 de (2k−1)·100 = 100·20² = 40 000 tokens de entrada, contra 2 000 se cada volta enviasse só a mensagem nova. É o crescimento quadrático que justifica janelas, resumos e prompt caching.</p></details>
+
+<script>
+(() => {
+  const p = document.getElementById('mem-p'), b = document.getElementById('mem-b'), o = document.getElementById('mem-out');
+  function mem() {
+    document.getElementById('mem-pv').textContent = p.value;
+    const gb = +p.value * +b.value / 8, total = gb * 1.2 + 1;
+    const cabe = total <= 8 ? 'portátil com 8 GB' : total <= 16 ? 'portátil com 16 GB' : total <= 24 ? 'GPU de 24 GB ou Mac de 32 GB' : total <= 48 ? 'Mac de 64 GB ou 2 GPUs de 24 GB' : 'GPU de servidor (80 GB) ou várias GPUs';
+    o.textContent = `Pesos ≈ ${gb.toFixed(1)} GB · total estimado ≈ ${total.toFixed(1)} GB → ${cabe}`;
+  }
+  p.addEventListener('input', mem); b.addEventListener('change', mem); mem();
+
+  const n = document.getElementById('memo-n'), e = document.getElementById('memo-e'), viz = document.getElementById('memo-viz'), out = document.getElementById('memo-out');
+  function memo() {
+    const v = +n.value; document.getElementById('memo-nv').textContent = v;
+    const total = v * 2 - 1;
+    let enviadas = [], resumo = false;
+    for (let i = 0; i < total; i++) {
+      if (e.value === 'full') enviadas.push(true);
+      else if (e.value === 'window') enviadas.push(i >= total - 6);
+      else enviadas.push(i >= total - 4);
+    }
+    if (e.value === 'summary' && total > 4) resumo = true;
+    viz.innerHTML = '';
+    if (resumo) { const s = document.createElement('span'); s.textContent = 'resumo'; s.style.cssText = 'padding:4px 8px;border-radius:4px;background:var(--heat-soft);border:1px solid var(--heat);font:.75rem var(--f-mono)'; viz.append(s); }
+    enviadas.forEach((x, i) => {
+      const s = document.createElement('span'); s.textContent = i % 2 ? 'A' : 'U';
+      s.title = i % 2 ? 'assistente' : 'utilizador';
+      s.style.cssText = `width:26px;text-align:center;padding:4px 0;border-radius:4px;font:.75rem var(--f-mono);border:1px solid var(--line);background:${x ? 'var(--accent)' : 'var(--bg)'};color:${x ? 'var(--bg)' : 'var(--muted)'}`;
+      viz.append(s);
+    });
+    const tok = enviadas.filter(Boolean).length * 100 + (resumo ? 150 : 0);
+    out.textContent = `Última chamada envia ≈ ${tok} tokens de histórico (100 por mensagem${resumo ? ', 150 do resumo' : ''}). ` +
+      (e.value === 'window' && total > 6 ? 'As mensagens iniciais perderam-se.' : e.value === 'full' ? 'Nada se perde, mas o custo cresce a cada volta.' : 'O início sobrevive comprimido no resumo.');
+  }
+  n.addEventListener('input', memo); e.addEventListener('change', memo); memo();
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>As APIs de LLM recebem uma lista de mensagens e devolvem a próxima, e uma aplicação real precisa de streaming, novas tentativas com backoff e controlo de custos. Modelos abertos correm localmente com Ollama ou llama.cpp, com privacidade total e custo marginal zero, em troca de menos qualidade e de hardware próprio. O LiteLLM dá uma interface única para dezenas de fornecedores. Como os modelos não têm memória, é a aplicação que gere o histórico, com janela deslizante, resumo ou memória persistente. Gradio e Streamlit transformam tudo isto numa interface em poucas linhas.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="03">Marcar lição como concluída</button></p>
   </section>

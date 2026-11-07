@@ -28,32 +28,293 @@
     </ul>
   </section>
 
+<!--CORPO-->
   <nav class="caixa toc">
     <p class="eyebrow">Nesta lição</p>
-    <ol><li><a href="#s1">Tokenização (BPE, SentencePiece) e o impacto do português na contagem de tokens</a></li><li><a href="#s2">Embeddings, atenção multi-cabeça, posicionamento (RoPE) e KV cache</a></li><li><a href="#s3">Modelos decoder-only, Mixture of Experts (MoE) e modelos de raciocínio</a></li><li><a href="#s4">Pré-treino, SFT, RLHF/RLAIF e leis de escala</a></li><li><a href="#s5">Amostragem: greedy, temperatura, top-k, top-p, beam search</a></li><li><a href="#s6">Panorama de modelos: fechados (Claude, GPT, Gemini) e abertos (Llama, Qwen, Mistral, DeepSeek, Gemma)</a></li></ol>
+    <ol>
+      <li><a href="#s1">A ideia central: prever o próximo token</a></li>
+      <li><a href="#s2">Tokenização</a></li>
+      <li><a href="#s3">Embeddings</a></li>
+      <li><a href="#s4">Atenção e o bloco transformer</a></li>
+      <li><a href="#s5">Variantes modernas: MoE, RoPE, KV cache e raciocínio</a></li>
+      <li><a href="#s6">Ciclo de vida: pré-treino, SFT e alinhamento</a></li>
+      <li><a href="#s7">Amostragem: como o modelo escolhe palavras</a></li>
+      <li><a href="#s8">Panorama de modelos</a></li>
+      <li><a href="#verificar">Verifica o que aprendeste</a></li>
+    </ol>
   </nav>
 
-  <div class="nota"><strong>Em construção</strong><p>Esta lição ainda está a ser escrita. A estrutura abaixo segue os tópicos do currículo.</p></div>
+  <h2 id="s1">A ideia central: prever o próximo token</h2>
+  <p>Um modelo de linguagem grande faz uma coisa: dado um texto, devolve uma distribuição de probabilidade sobre qual será o próximo pedaço de texto. Gerar uma resposta é repetir esse passo muitas vezes. O modelo escolhe um token, acrescenta-o ao texto e volta a prever.</p>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  T["Texto: 'O Porto é uma'"] --> K[Tokenizador]
+  K --> E[Embeddings]
+  E --> B["N blocos transformer"]
+  B --> L["Logits sobre o vocabulário"]
+  L --> S[Amostragem]
+  S --> N["'cidade'"]
+  N -. "acrescenta e repete" .-> T
+    </pre>
+    <figcaption>O ciclo autoregressivo. Cada token gerado volta a entrar como contexto.</figcaption>
+  </figure>
+  <p>Tudo o que parece raciocínio, tradução ou programação sai deste objetivo simples, treinado sobre biliões de tokens. Para prever bem a próxima palavra de um contrato, de um teorema ou de um programa, o modelo tem de construir representações internas da gramática, dos factos e da lógica desses textos.</p>
+  <div class="nota"><strong>Ideia-chave</strong><p>O modelo não tem uma base de dados de respostas. Tem parâmetros (pesos) que transformam um contexto numa distribuição sobre o próximo token. Por isso pode inventar factos com total confiança: está a produzir texto plausível, não a consultar uma fonte.</p></div>
 
-  <h2 id="s1">Tokenização (BPE, SentencePiece) e o impacto do português na contagem de tokens</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s2">Embeddings, atenção multi-cabeça, posicionamento (RoPE) e KV cache</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s3">Modelos decoder-only, Mixture of Experts (MoE) e modelos de raciocínio</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s4">Pré-treino, SFT, RLHF/RLAIF e leis de escala</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s5">Amostragem: greedy, temperatura, top-k, top-p, beam search</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
-  <h2 id="s6">Panorama de modelos: fechados (Claude, GPT, Gemini) e abertos (Llama, Qwen, Mistral, DeepSeek, Gemma)</h2>
-  <p>[TODO: explicação, exemplo e, quando fizer sentido, diagrama ou demo.]</p>
+  <h2 id="s2">Tokenização</h2>
+  <p>Os modelos não leem caracteres nem palavras, leem <strong>tokens</strong>: pedaços de texto de um vocabulário fixo, normalmente com 32 mil a 200 mil entradas. O algoritmo mais comum é o <strong>Byte Pair Encoding (BPE)</strong>. Começa com bytes individuais e junta repetidamente o par adjacente mais frequente no corpus de treino, até atingir o tamanho de vocabulário pretendido.</p>
+  <p>Experimenta abaixo um BPE treinado em tempo real sobre o texto que escreveres. Cada passo junta o par mais frequente.</p>
+  <div class="demo" id="bpe">
+    <label for="bpe-txt">Texto de treino</label>
+    <textarea id="bpe-txt" rows="3">o gato comeu o rato e o rato comeu o queijo enquanto o gato dormia</textarea>
+    <label for="bpe-n">Número de fusões: <span id="bpe-nv">0</span></label>
+    <input type="range" id="bpe-n" min="0" max="30" value="0">
+    <div id="bpe-out" style="display:flex;flex-wrap:wrap;gap:4px;font-family:var(--f-mono);font-size:.85rem"></div>
+    <p id="bpe-info" style="font-size:.9rem;color:var(--muted)"></p>
+  </div>
+  <p>Consequências práticas que vais sentir no dia a dia:</p>
+  <ul>
+    <li><strong>O português gasta mais tokens que o inglês.</strong> Os vocabulários são construídos sobretudo com texto inglês, por isso palavras como «desenvolvimento» partem-se em vários pedaços. O mesmo texto pode custar 20 a 50% mais tokens em português.</li>
+    <li><strong>Custos e limites contam-se em tokens.</strong> As APIs cobram por milhão de tokens de entrada e de saída, e a janela de contexto (por exemplo 200 mil tokens) também se mede assim. Em inglês, um token anda à volta de 0,75 palavras.</li>
+    <li><strong>Alguns erros vêm da tokenização.</strong> Contar letras numa palavra ou fazer aritmética com números longos é difícil porque o modelo não vê os caracteres individuais.</li>
+  </ul>
+  <div class="tabela"><table>
+    <thead><tr><th>Tokenizador</th><th>Algoritmo</th><th>Usado em</th></tr></thead>
+    <tbody>
+      <tr><td>tiktoken (o200k_base)</td><td>BPE ao nível do byte</td><td>Modelos GPT recentes</td></tr>
+      <tr><td>SentencePiece</td><td>BPE ou Unigram, sem pré-separação por espaços</td><td>Llama 2, Gemma, T5</td></tr>
+      <tr><td>tokenizers (Hugging Face)</td><td>BPE, WordPiece, Unigram</td><td>A maioria dos modelos no Hub</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s3">Embeddings</h2>
+  <p>Cada token é um número inteiro (o seu índice no vocabulário). A primeira camada do modelo é uma tabela que converte esse índice num vetor denso, o <strong>embedding</strong>, com algumas centenas a vários milhares de dimensões. Esta tabela é aprendida durante o treino.</p>
+  <p>Em PyTorch é simplesmente <code>nn.Embedding(vocab_size, d_model)</code>. Ao longo do treino, tokens que aparecem em contextos semelhantes acabam com vetores próximos. À medida que o vetor atravessa as camadas, deixa de representar só o token e passa a representar o token no seu contexto: «banco» numa frase sobre finanças fica num sítio diferente de «banco» numa frase sobre um jardim.</p>
+  <div class="codigo"><pre><code>import torch
+import torch.nn as nn
+
+vocab_size, d_model = 50_000, 768
+emb = nn.Embedding(vocab_size, d_model)
+
+ids = torch.tensor([[812, 4021, 17]])   # 1 frase com 3 tokens
+x = emb(ids)                            # forma: (1, 3, 768)</code></pre></div>
+  <div class="nota atencao"><strong>Não confundir</strong><p>Os embeddings internos de um LLM não são o mesmo que os modelos de embeddings usados em pesquisa semântica (módulo 4). Esses são treinados de propósito para que frases com o mesmo significado fiquem próximas, e produzem um único vetor por texto.</p></div>
+
+  <h2 id="s4">Atenção e o bloco transformer</h2>
+  <p>A arquitetura transformer (Vaswani et al., 2017) resolveu o problema de misturar informação entre posições de forma paralelizável. O mecanismo central é a <strong>atenção</strong>. Cada token produz três vetores a partir do seu embedding:</p>
+  <ul>
+    <li><strong>Query (Q)</strong>: o que este token procura.</li>
+    <li><strong>Key (K)</strong>: o que este token oferece para ser encontrado.</li>
+    <li><strong>Value (V)</strong>: a informação que este token passa a quem o escolher.</li>
+  </ul>
+  <p>A pontuação entre dois tokens é o produto interno da query de um com a key do outro. Depois de um softmax, essas pontuações tornam-se pesos, e a saída de cada token é a média ponderada dos values:</p>
+  <div class="codigo"><pre><code>Atenção(Q, K, V) = softmax(Q·Kᵀ / √d_k + máscara) · V</code></pre></div>
+  <p>Num modelo de geração, a <strong>máscara causal</strong> impede cada token de olhar para tokens futuros. A divisão por √d_k evita que o softmax sature quando a dimensão é grande. Passa o rato (ou toca) sobre uma palavra para ver para onde ela olha neste exemplo ilustrativo:</p>
+  <div class="demo" id="att">
+    <div id="att-frase" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    <p id="att-info" style="font-size:.9rem;color:var(--muted)">Escolhe uma palavra.</p>
+  </div>
+  <p>Na prática usam-se várias cabeças de atenção em paralelo (<strong>multi-head attention</strong>), cada uma com as suas projeções Q, K e V, para que o modelo possa seguir vários tipos de relação ao mesmo tempo: sintaxe, correferência, posição. Um <strong>bloco transformer</strong> junta:</p>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart TB
+  X[Entrada] --> N1[RMSNorm] --> A[Atenção multi-cabeça causal] --> R1(("+"))
+  X --> R1
+  R1 --> N2[RMSNorm] --> F["MLP (SwiGLU)"] --> R2(("+"))
+  R1 --> R2
+  R2 --> Y[Saída para o bloco seguinte]
+    </pre>
+    <figcaption>Bloco pre-norm usado em modelos como Llama e Qwen. As setas para "+" são as ligações residuais.</figcaption>
+  </figure>
+  <p>Um modelo como o Llama 3 8B empilha 32 destes blocos com dimensão 4096. No fim, uma camada linear projeta o vetor da última posição para o tamanho do vocabulário, dando os <strong>logits</strong>, uma pontuação por token possível.</p>
+
+  <h2 id="s5">Variantes modernas: MoE, RoPE, KV cache e raciocínio</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Técnica</th><th>O que resolve</th><th>Como funciona</th></tr></thead>
+    <tbody>
+      <tr><td>RoPE</td><td>Dar noção de posição</td><td>Roda os vetores Q e K por um ângulo que depende da posição, para que o produto interno dependa da distância relativa. Facilita estender o contexto.</td></tr>
+      <tr><td>KV cache</td><td>Geração lenta</td><td>Guarda as keys e values já calculados. Cada novo token só calcula a sua própria linha em vez de reprocessar todo o texto.</td></tr>
+      <tr><td>GQA / MQA</td><td>KV cache demasiado grande</td><td>Várias cabeças de query partilham as mesmas keys e values, reduzindo a memória.</td></tr>
+      <tr><td>Mixture of Experts</td><td>Mais capacidade sem mais custo por token</td><td>A MLP é substituída por vários «especialistas» e um router ativa só 2 a 8 por token. Mixtral, DeepSeek-V3 e Qwen3-MoE usam esta ideia.</td></tr>
+      <tr><td>FlashAttention</td><td>Atenção lenta e com muita memória</td><td>Calcula a atenção por blocos dentro da memória rápida da GPU, sem materializar a matriz completa.</td></tr>
+      <tr><td>Modelos de raciocínio</td><td>Problemas que precisam de vários passos</td><td>São treinados com reinforcement learning para gerar uma cadeia de raciocínio longa antes de responder. Gastar mais tokens a pensar (test-time compute) melhora matemática e programação.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s6">Ciclo de vida: pré-treino, SFT e alinhamento</h2>
+  <figure class="diagrama">
+    <pre class="mermaid">
+flowchart LR
+  A["Pré-treino<br/>biliões de tokens da web, livros, código"] --> B["Modelo base<br/>completa texto"]
+  B --> C["SFT<br/>milhares a milhões de pares instrução-resposta"]
+  C --> D["Modelo instruct<br/>segue instruções"]
+  D --> E["Alinhamento<br/>RLHF, DPO, RL com recompensas verificáveis"]
+  E --> F["Modelo de chat<br/>útil, honesto, seguro"]
+    </pre>
+  </figure>
+  <ul>
+    <li><strong>Pré-treino.</strong> Previsão do próximo token sobre um corpus enorme. É a fase mais cara (milhões de horas de GPU) e onde o modelo ganha conhecimento e competências. As <strong>leis de escala</strong> (Kaplan 2020, Chinchilla 2022) mostram que a perda desce de forma previsível com mais parâmetros, dados e computação.</li>
+    <li><strong>Supervised fine-tuning (SFT).</strong> Treino adicional com exemplos de conversas no formato pretendido. O modelo base, que só completava texto, passa a responder a pedidos.</li>
+    <li><strong>Alinhamento.</strong> No <strong>RLHF</strong>, humanos comparam pares de respostas, treina-se um modelo de recompensa com essas preferências e otimiza-se o LLM contra ele (PPO). O <strong>DPO</strong> chega a um resultado semelhante otimizando diretamente sobre os pares, sem modelo de recompensa. Os modelos de raciocínio usam RL com recompensas verificáveis (por exemplo, se a resposta matemática está certa), como o GRPO.</li>
+  </ul>
+  <div class="nota"><strong>Porque importa</strong><p>Quando escolhes um modelo aberto no Hugging Face, vais ver versões «base» e «instruct». Para conversar ou seguir instruções usa a instruct. Para fine-tuning próprio (módulo 11), às vezes compensa partir da base.</p></div>
+
+  <h2 id="s7">Amostragem: como o modelo escolhe palavras</h2>
+  <p>Os logits passam por um softmax e dão probabilidades. A forma de escolher o próximo token a partir delas chama-se estratégia de amostragem:</p>
+  <ul>
+    <li><strong>Greedy</strong>: escolhe sempre o mais provável. Determinístico, mas tende a repetir-se.</li>
+    <li><strong>Temperatura</strong>: divide os logits por T antes do softmax. T &lt; 1 concentra a probabilidade nos tokens mais prováveis; T &gt; 1 espalha-a.</li>
+    <li><strong>Top-k</strong>: só considera os k tokens mais prováveis.</li>
+    <li><strong>Top-p (nucleus)</strong>: só considera o menor conjunto de tokens cuja probabilidade acumulada chega a p.</li>
+  </ul>
+  <p>Ajusta a temperatura e o top-p para o contexto «O Porto é uma ...» e vê como a distribuição muda. As barras a cinzento ficam fora do núcleo e nunca serão escolhidas.</p>
+  <div class="demo" id="samp">
+    <label for="samp-t">Temperatura: <span id="samp-tv">1.0</span></label>
+    <input type="range" id="samp-t" min="0.1" max="2" step="0.1" value="1">
+    <label for="samp-p">Top-p: <span id="samp-pv">1.00</span></label>
+    <input type="range" id="samp-p" min="0.1" max="1" step="0.05" value="1">
+    <div id="samp-bars" style="display:grid;gap:4px"></div>
+    <p><button type="button" class="btn" id="samp-go">Amostrar 20 tokens</button></p>
+    <p id="samp-out" style="font-family:var(--f-mono);font-size:.85rem;color:var(--muted)"></p>
+  </div>
+  <div class="tabela"><table>
+    <thead><tr><th>Tarefa</th><th>Configuração típica</th></tr></thead>
+    <tbody>
+      <tr><td>Extração de dados, classificação, código</td><td>Temperatura 0 a 0,2</td></tr>
+      <tr><td>Assistente conversacional</td><td>Temperatura 0,5 a 0,8, top-p 0,9 a 0,95</td></tr>
+      <tr><td>Escrita criativa, brainstorming</td><td>Temperatura 0,9 a 1,2</td></tr>
+    </tbody>
+  </table></div>
+  <div class="nota atencao"><strong>Cuidado</strong><p>Mesmo com temperatura 0 as APIs não garantem respostas idênticas, por causa de não-determinismo numérico nas GPUs e do batching. Se precisas de reprodutibilidade, guarda as respostas.</p></div>
+
+  <h2 id="s8">Panorama de modelos</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Família</th><th>Tipo</th><th>Pontos fortes</th></tr></thead>
+    <tbody>
+      <tr><td>Claude (Anthropic)</td><td>Fechado, API</td><td>Programação, agentes, documentos longos, escrita</td></tr>
+      <tr><td>GPT (OpenAI)</td><td>Fechado, API</td><td>Ecossistema amplo, raciocínio, multimodal</td></tr>
+      <tr><td>Gemini (Google)</td><td>Fechado, API</td><td>Contextos muito longos, vídeo e áudio</td></tr>
+      <tr><td>Llama (Meta)</td><td>Pesos abertos</td><td>Base para fine-tuning, grande comunidade</td></tr>
+      <tr><td>Qwen (Alibaba)</td><td>Pesos abertos</td><td>Forte em vários tamanhos, multilingue, código</td></tr>
+      <tr><td>Mistral</td><td>Abertos e fechados</td><td>Eficiência, empresa europeia</td></tr>
+      <tr><td>DeepSeek</td><td>Pesos abertos</td><td>MoE eficiente, raciocínio</td></tr>
+      <tr><td>Gemma (Google)</td><td>Pesos abertos</td><td>Modelos pequenos de boa qualidade</td></tr>
+    </tbody>
+  </table></div>
+  <p>Para escolher, compara em três eixos: qualidade na tua tarefa (mede, não confies só em benchmarks), custo por milhão de tokens e requisitos de privacidade. Rankings úteis para começar são o LMArena e o Open LLM Leaderboard do Hugging Face.</p>
 
   <h2 id="verificar">Verifica o que aprendeste</h2>
-  <p>[TODO: 3 a 5 quizzes.]</p>
+  <div class="quiz" data-certa="2" data-explicacao="O modelo devolve uma distribuição sobre o próximo token. A resposta inteira resulta de repetir esse passo e de uma estratégia de amostragem.">
+    <p class="pergunta">O que é que um LLM calcula numa única passagem pela rede?</p>
+    <div class="opcoes"><button>A resposta completa à pergunta</button><button>A palavra mais provável, sempre a mesma</button><button>Uma distribuição de probabilidade sobre o próximo token</button><button>Uma pesquisa numa base de dados interna</button></div>
+  </div>
+  <div class="quiz" data-certa="1" data-explicacao="O vocabulário é dominado por inglês, por isso as palavras portuguesas partem-se em mais pedaços, e o custo e o uso de contexto são maiores.">
+    <p class="pergunta">Porque é que o mesmo texto costuma custar mais em português do que em inglês?</p>
+    <div class="opcoes"><button>As APIs cobram uma taxa por idioma</button><button>O tokenizador parte as palavras portuguesas em mais tokens</button><button>Os modelos geram respostas mais longas em português</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="A máscara causal põe -∞ nas posições futuras antes do softmax, por isso cada token só vê os anteriores. É isso que permite treinar a prever o próximo token em paralelo.">
+    <p class="pergunta">Para que serve a máscara causal na atenção?</p>
+    <div class="opcoes"><button>Impedir que cada token veja tokens futuros</button><button>Esconder dados pessoais do texto</button><button>Reduzir o tamanho do vocabulário</button></div>
+  </div>
+  <div class="quiz" data-certa="2" data-explicacao="O DPO otimiza diretamente sobre pares de respostas preferidas e rejeitadas, sem treinar um modelo de recompensa separado nem usar PPO.">
+    <p class="pergunta">Qual é a principal diferença entre DPO e RLHF clássico?</p>
+    <div class="opcoes"><button>O DPO não usa dados de preferência humana</button><button>O DPO só funciona em modelos base</button><button>O DPO dispensa o modelo de recompensa e o PPO</button></div>
+  </div>
+  <div class="quiz" data-certa="0" data-explicacao="Para extração queremos a resposta mais provável e consistente. Temperaturas altas acrescentam variedade, que aqui só traz erros.">
+    <p class="pergunta">Estás a extrair o NIF e o valor de faturas. Que temperatura usas?</p>
+    <div class="opcoes"><button>0 a 0,2</button><button>0,7</button><button>1,5</button></div>
+  </div>
+  <details class="revelar"><summary>Exercício: porque é que o KV cache acelera a geração, mas não o processamento do prompt?</summary><p>No prompt, todos os tokens são processados de uma só vez em paralelo, por isso não há nada para reutilizar. Durante a geração, cada novo token precisa das keys e values de todos os anteriores. Sem cache, seriam recalculados a cada passo (custo quadrático). Com cache, só se calcula a linha do novo token.</p></details>
+  <details class="revelar"><summary>Exercício: um modelo MoE tem 47 mil milhões de parâmetros e ativa 13 mil milhões por token. Quanta memória precisa e quanto custa por token?</summary><p>Precisa de memória para os 47 mil milhões (todos os especialistas têm de estar carregados), mas o custo de computação por token é próximo do de um modelo denso de 13 mil milhões. É por isso que o MoE dá mais qualidade por euro de inferência, à custa de mais memória.</p></details>
+
+<script>
+(() => {
+  // ---- BPE ----
+  const txt = document.getElementById('bpe-txt'), n = document.getElementById('bpe-n'), nv = document.getElementById('bpe-nv');
+  const out = document.getElementById('bpe-out'), info = document.getElementById('bpe-info');
+  function bpe() {
+    const words = txt.value.toLowerCase().split(/\s+/).filter(Boolean).map(w => [...w, '_']);
+    const merges = [];
+    for (let k = 0; k < +n.value; k++) {
+      const c = new Map();
+      for (const w of words) for (let i = 0; i < w.length - 1; i++) { const p = w[i] + '\u0001' + w[i + 1]; c.set(p, (c.get(p) || 0) + 1); }
+      let best = null, bc = 1;
+      for (const [p, v] of c) if (v > bc) { best = p; bc = v; }
+      if (!best) break;
+      const [a, b] = best.split('\u0001');
+      merges.push(a + b + ' (' + bc + '×)');
+      for (const w of words) for (let i = 0; i < w.length - 1; i++) if (w[i] === a && w[i + 1] === b) { w.splice(i, 2, a + b); }
+    }
+    nv.textContent = n.value;
+    out.innerHTML = '';
+    const total = words.reduce((s, w) => s + w.length, 0);
+    words.forEach(w => w.forEach(t => {
+      const s = document.createElement('span'); s.textContent = t.replace('_', '·');
+      s.style.cssText = 'padding:2px 6px;border-radius:4px;background:var(--accent-soft);border:1px solid var(--line)';
+      out.append(s);
+    }));
+    info.textContent = total + ' tokens. ' + (merges.length ? 'Última fusão: ' + merges[merges.length - 1] + '. «·» marca o fim de palavra.' : 'Sem fusões: cada caractere é um token. «·» marca o fim de palavra.');
+  }
+  txt.addEventListener('input', bpe); n.addEventListener('input', bpe); bpe();
+
+  // ---- Atenção (pesos ilustrativos) ----
+  const palavras = ['O', 'gato', 'que', 'o', 'João', 'adotou', 'dorme', 'no', 'sofá'];
+  const pesos = {
+    1: { 0: .55, 1: .45 }, 2: { 1: .7, 2: .3 }, 4: { 3: .3, 4: .4, 1: .3 },
+    5: { 4: .45, 1: .35, 2: .2 }, 6: { 1: .65, 5: .15, 6: .2 }, 7: { 6: .6, 7: .4 }, 8: { 7: .35, 6: .3, 8: .35 }
+  };
+  const box = document.getElementById('att-frase'), ai = document.getElementById('att-info');
+  const spans = palavras.map((p, i) => {
+    const s = document.createElement('button'); s.type = 'button'; s.textContent = p;
+    s.style.cssText = 'font:inherit;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer';
+    const ver = () => {
+      const w = pesos[i] || { [i]: 1 };
+      spans.forEach((x, j) => {
+        const v = j > i ? 0 : (w[j] || 0.02);
+        x.style.background = j > i ? 'var(--bg)' : `color-mix(in srgb, var(--accent) ${Math.round(v * 100)}%, var(--bg))`;
+        x.style.opacity = j > i ? .35 : 1;
+      });
+      const top = Object.entries(w).sort((a, b) => b[1] - a[1])[0];
+      ai.textContent = `«${p}» olha sobretudo para «${palavras[top[0]]}». As palavras a seguir estão escondidas pela máscara causal.` + (i === 6 ? ' O verbo «dorme» encontra o sujeito «gato» apesar da oração intercalada.' : '');
+    };
+    s.addEventListener('mouseenter', ver); s.addEventListener('focus', ver); s.addEventListener('click', ver);
+    box.append(s); return s;
+  });
+
+  // ---- Amostragem ----
+  const cand = [['cidade', 4.2], ['das', 2.6], ['bela', 2.3], ['referência', 1.9], ['zona', 1.4], ['grande', 1.2], ['equipa', 1.0], ['ponte', 0.3], ['banana', -1.5]];
+  const T = document.getElementById('samp-t'), Pp = document.getElementById('samp-p'), bars = document.getElementById('samp-bars');
+  let dist = [];
+  function calc() {
+    const t = +T.value, p = +Pp.value;
+    document.getElementById('samp-tv').textContent = t.toFixed(1);
+    document.getElementById('samp-pv').textContent = p.toFixed(2);
+    const ex = cand.map(([w, l]) => [w, Math.exp(l / t)]);
+    const z = ex.reduce((s, x) => s + x[1], 0);
+    let acc = 0;
+    dist = ex.map(([w, e]) => [w, e / z]).sort((a, b) => b[1] - a[1]).map(([w, pr]) => { const dentro = acc < p; acc += pr; return [w, pr, dentro]; });
+    bars.innerHTML = '';
+    dist.forEach(([w, pr, dentro]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:6.5rem 1fr 3.5rem;gap:8px;align-items:center;font-size:.85rem';
+      row.innerHTML = `<span style="font-family:var(--f-mono)">${w}</span><span style="height:14px;border-radius:3px;background:${dentro ? 'var(--accent)' : 'var(--line)'};width:${Math.max(pr * 100, .5)}%"></span><span style="font-family:var(--f-mono);text-align:right;color:var(--muted)">${(pr * 100).toFixed(1)}%</span>`;
+      bars.append(row);
+    });
+  }
+  T.addEventListener('input', calc); Pp.addEventListener('input', calc); calc();
+  document.getElementById('samp-go').addEventListener('click', () => {
+    const nuc = dist.filter(d => d[2]); const z = nuc.reduce((s, d) => s + d[1], 0);
+    const r = [];
+    for (let k = 0; k < 20; k++) { let u = Math.random() * z; for (const d of nuc) { u -= d[1]; if (u <= 0) { r.push(d[0]); break; } } }
+    document.getElementById('samp-out').textContent = r.join(' · ');
+  });
+})();
+</script>
 
   <section class="resumo">
     <h3>Resumo</h3>
-    <p>[TODO: 3 a 5 frases com o essencial da lição.]</p>
+    <p>Um LLM é um modelo que prevê o próximo token. O texto é partido em tokens, cada token vira um vetor, e uma pilha de blocos transformer usa atenção para misturar informação entre posições. O modelo ganha conhecimento no pré-treino, aprende a seguir instruções no SFT e é alinhado com preferências humanas (RLHF ou DPO). Na geração, a temperatura e o top-p controlam o equilíbrio entre previsibilidade e variedade, e a contagem de tokens determina custo e limites de contexto.</p>
     <p><a class="btn" href="pratica.ipynb">Passar à prática no notebook</a></p>
     <p><button class="btn" type="button" data-marcar-lida="01">Marcar lição como concluída</button></p>
   </section>
